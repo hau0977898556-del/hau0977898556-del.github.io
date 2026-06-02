@@ -66,10 +66,7 @@ function initLuaFactory() {
 }
 
 async function recycleLuaFactory() {
-  console.log("[Memory Manager] Re-creating LuaFactory to release occupied WebAssembly memory pages...");
-  factory = new LuaFactory();
-  factoryInitPromise = null;
-  await initLuaFactory();
+  console.log("[Memory Manager] Garbage collector triggered to release host memory...");
   if (global.gc) {
     try {
       global.gc();
@@ -84,12 +81,11 @@ async function recycleLuaFactory() {
 initLuaFactory().catch(console.error);
 
 async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld: boolean = false): Promise<string> {
+  await initLuaFactory();
   const currentMemoryRssMb = process.memoryUsage().rss / 1024 / 1024;
   if (currentMemoryRssMb > 300) {
-    console.warn(`[Memory Warning] High memory detected inside Prometheus: ${currentMemoryRssMb.toFixed(1)}MB. Recreating WASM state...`);
+    console.warn(`[Memory Warning] High memory detected inside Prometheus: ${currentMemoryRssMb.toFixed(1)}MB. Purging garbage memory...`);
     await recycleLuaFactory();
-  } else {
-    await initLuaFactory();
   }
   const lua = await factory.createEngine();
 
