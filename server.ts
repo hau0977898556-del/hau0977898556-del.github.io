@@ -776,7 +776,7 @@ return loadedFn()`;
                 "do local function _fake() return {} end end;",
                 "if not script then local _=1 end;",
                 "do local _fake_env = getfenv and getfenv() or _ENV; end;",
-                "(function() local _=false end)();",
+                "do local _t = {false}; end;",
                 "do local _v = {}; end;"
             ];
             
@@ -895,7 +895,9 @@ return loadedFn()`;
             }
             return out;
         }; 
-        finalObfuscated = injectCustomGarbage(finalObfuscated);
+        if (preset === "psu-ExtraMinify") {
+            finalObfuscated = injectCustomGarbage(finalObfuscated);
+        }
 
         if (preset !== "psu-ExtraMinify") {
             try {
