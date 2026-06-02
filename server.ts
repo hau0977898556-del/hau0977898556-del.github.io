@@ -757,13 +757,11 @@ ${wrdVmCode}
 end)(p)
 return loadedFn()`;
             try {
-                let chaosLoader = await obfuscateWithPrometheus(nativeLoader, "ChaosOuterLayer");
-                require('fs').writeFileSync('tmpout_chaos.txt', chaosLoader);
                 let minNativeLoader = "";
                 try {
-                    minNativeLoader = luamin.minify(chaosLoader);
+                    minNativeLoader = luamin.minify(nativeLoader);
                 } catch {
-                    minNativeLoader = safeLuauMinify(chaosLoader);
+                    minNativeLoader = safeLuauMinify(nativeLoader);
                 }
                 finalObfuscated = `return (function(...)${minNativeLoader}end)("${garbled}")`;
             } catch (err) {
