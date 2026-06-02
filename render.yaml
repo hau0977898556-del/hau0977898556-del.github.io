@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: minray-obfuscator
+    env: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: NODE_ENV
+        value: "production"
+      - key: APP_URL
+        sync: true
+      - key: GEMINI_API_KEY
+        sync: true
+      - key: VITE_SUPABASE_URL
+        value: "https://tevzvdpmtmwqkzogyejf.supabase.co"
+      - key: VITE_SUPABASE_ANON_KEY
+        value: "sb_publishable_MJJ73DqnyNwhUeHbXHjSqQ_92rdncqI"

@@ -278,14 +278,15 @@ async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld:
     `;
 
     const result = await lua.doString(luaCode);
-    
-    // We cannot call lua.global.close() because 'factory' shares the same WASM memory 
-    // across all engine instances. Closing it once breaks subsequent createEngine() calls.
-    // The gc will handle lua instances cleanup properly.
-    
     return result;
   } catch (e) {
     throw e;
+  } finally {
+    try {
+      (lua as any).close();
+    } catch (e) {
+      console.warn("Error closing lua engine instance:", e);
+    }
   }
 }
 
@@ -932,7 +933,7 @@ return loadedFn()`;
       clearTimeout(timer);
       if (exitCode !== 0 && !child.killed) {
         if (stderr.includes("ENOENT") || stderr.includes("not found")) {
-           reject(new Error("IronBrew2 is not supported on this environment (e.g., Render). Please use the 'psu' preset instead."));
+           reject(new Error("IronBrew2 / .NET is not supported on this environment. To run IronBrew2 on Render/Linux, please deploy using our custom Dockerfile (which installs the required .NET runtime) or switch to the 'psu' preset instead."));
         } else {
            reject(new Error(stderr || `Process exited with code ${exitCode}`));
         }
@@ -950,7 +951,7 @@ return loadedFn()`;
     child.on("error", (err: any) => {
       clearTimeout(timer);
       if (err.code === 'ENOENT' || err.code === 'EACCES' || err.code === 'ENOEXEC') {
-        reject(new Error("IronBrew2 is not supported on this environment (e.g., Render). Please use the 'psu' preset instead."));
+        reject(new Error("IronBrew2 / .NET is not configured on this host. To run IronBrew2 on Render/Linux, please deploy using our custom Dockerfile (which installs the required .NET runtime) or switch to the 'psu' preset instead."));
       } else {
         reject(err);
       }
@@ -1134,8 +1135,21 @@ app.post('/api/obfuscate', async (req, res) => {
   try {
     const { code, preset, userEmail, recoveryToken } = req.body;
 
+    // Extract API Key and check limits/unlimited early
+    const apiKeyHeader = req.headers['x-api-key'] || req.headers['X-API-Key'];
+    const authHeader = req.headers['authorization'];
+    
+    let providedKey = '';
+    if (apiKeyHeader) {
+      providedKey = String(apiKeyHeader).trim();
+    } else if (authHeader && String(authHeader).startsWith('Bearer ')) {
+      providedKey = String(authHeader).substring(7).trim();
+    }
+
+    const isSpecialUnlimitedKey = (providedKey && providedKey.trim().toUpperCase() === 'MINRAYAPI-W6ZMWT');
+
     const currentMemoryRssMb = process.memoryUsage().rss / 1024 / 1024;
-    if (currentMemoryRssMb > 400) {
+    if (!isSpecialUnlimitedKey && currentMemoryRssMb > 400) {
       console.warn(`[Memory Warning] High entry memory detected: ${currentMemoryRssMb.toFixed(1)}MB. Slower obfuscation speed activated...`);
       if (global.gc) {
         try { global.gc(); } catch (e) {}
@@ -1172,19 +1186,6 @@ app.post('/api/obfuscate', async (req, res) => {
     if (preset.includes(';') || preset.includes('&') || preset.includes('|') || preset.includes('`')) {
       return res.status(400).json({ error: 'Security Exception: Malicious preset parameters dynamic characters rejected.' });
     }
-
-    // 2. Validate API Key Headers if provided
-    const apiKeyHeader = req.headers['x-api-key'] || req.headers['X-API-Key'];
-    const authHeader = req.headers['authorization'];
-    
-    let providedKey = '';
-    if (apiKeyHeader) {
-      providedKey = String(apiKeyHeader).trim();
-    } else if (authHeader && String(authHeader).startsWith('Bearer ')) {
-      providedKey = String(authHeader).substring(7).trim();
-    }
-
-    const isSpecialUnlimitedKey = (providedKey && providedKey.trim().toUpperCase() === 'MINRAYAPI-W6ZMWT');
 
     if (providedKey) {
       // Validate key format: MinRayAPI-xxxx-xxxx with optional plan suffix
@@ -1251,7 +1252,8 @@ app.post('/api/obfuscate', async (req, res) => {
       engine: 'MinRay V2 VM Virtualizer'
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Obfuscation compilation crashed.' });
+    const isParseErr = error.message && error.message.includes("Parsing Error");
+    res.status(isParseErr ? 400 : 500).json({ error: error.message || 'Obfuscation compilation crashed.' });
   }
 });
 

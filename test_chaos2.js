@@ -1,2 +1,0 @@
-import fs from 'fs';
-fetch('http://127.0.0.1:3000/api/obfuscate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'local j = 1\nlocal h = 2\nlocal i = 1\nj[h] = i', preset: 'psu', antiFormat: false}) }).then(r=>r.json()).then(d=> { if(d.error) { console.error('Error:', d.error); } else { fs.writeFileSync('tmpout_test.txt', d.code); console.log('success'); } })

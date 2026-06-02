@@ -1,1 +1,0 @@
-const luamin = require('luamin'); console.log(luamin.minify('local a=1'))
