@@ -770,7 +770,7 @@ return loadedFn()`;
                 finalObfuscated = `return (function(...)\n${nativeLoader}\nend)("${garbled}")`;
             }
         }
-        const injectCustomGarbage = (code) => {
+        const injectCustomGarbage = (code: string) => {
             let garbs = [
                 "if false then local _={};for i=1,10 do _[i]=i end end;",
                 "do local function _fake() return {} end end;",
@@ -779,20 +779,118 @@ return loadedFn()`;
                 "(function() local _=false end)();",
                 "do local _v = {}; end;"
             ];
-            let matches = [...code.matchAll(/\blocal /g)];
-            let maxInjects = Math.max(10, Math.floor(matches.length * 0.15));
+            
+            // Safe parser to extract indices of "local " only when outside of strings and comments
+            const getValidLocalIndices = (src: string): number[] => {
+                const indices: number[] = [];
+                let i = 0;
+                const len = src.length;
+                while (i < len) {
+                    const char = src[i];
+                    // 1. Double-quoted string
+                    if (char === '"') {
+                        i++;
+                        while (i < len) {
+                            const c = src[i];
+                            if (c === '\\') {
+                                i += 2;
+                            } else if (c === '"') {
+                                i++;
+                                break;
+                            } else {
+                                i++;
+                            }
+                        }
+                        continue;
+                    }
+                    // 2. Single-quoted string
+                    if (char === "'") {
+                        i++;
+                        while (i < len) {
+                            const c = src[i];
+                            if (c === '\\') {
+                                i += 2;
+                            } else if (c === "'") {
+                                i++;
+                                break;
+                            } else {
+                                i++;
+                            }
+                        }
+                        continue;
+                    }
+                    // 3. Multi-line string
+                    if (char === '[' && i + 1 < len && (src[i + 1] === '[' || src[i + 1] === '=')) {
+                        let eqCount = 0;
+                        let j = i + 1;
+                        while (j < len && src[j] === '=') {
+                            eqCount++;
+                            j++;
+                        }
+                        if (j < len && src[j] === '[') {
+                            const endBracket = ']' + '='.repeat(eqCount) + ']';
+                            const endIdx = src.indexOf(endBracket, j + 1);
+                            if (endIdx !== -1) {
+                                i = endIdx + endBracket.length;
+                                continue;
+                            }
+                        }
+                    }
+                    // 4. Comment (single-line or multi-line)
+                    if (char === '-' && i + 1 < len && src[i + 1] === '-') {
+                        i += 2;
+                        if (i < len && src[i] === '[') {
+                            let eqCount = 0;
+                            let j = i + 1;
+                            while (j < len && src[j] === '=') {
+                                eqCount++;
+                                j++;
+                            }
+                            if (j < len && src[j] === '[') {
+                                const endBracket = ']' + '='.repeat(eqCount) + ']';
+                                const endIdx = src.indexOf(endBracket, j + 1);
+                                if (endIdx !== -1) {
+                                    i = endIdx + endBracket.length;
+                                    continue;
+                                }
+                            }
+                        }
+                        while (i < len && src[i] !== '\n' && src[i] !== '\r') {
+                            i++;
+                        }
+                        continue;
+                    }
+                    // 5. Match actual "local " token
+                    if (src.substring(i, i + 6) === "local ") {
+                        const prevChar = i > 0 ? src[i - 1] : '';
+                        const isPrevAlphanumeric = /[a-zA-Z0-9_]/.test(prevChar);
+                        if (!isPrevAlphanumeric) {
+                            indices.push(i);
+                        }
+                        i += 6;
+                        continue;
+                    }
+                    i++;
+                }
+                return indices;
+            };
+
+            const occurrences = getValidLocalIndices(code);
+            let maxInjects = Math.max(10, Math.floor(occurrences.length * 0.15));
             if (maxInjects > 50) maxInjects = 50;
-            let toInject = [];
-            for (let i = 0; i < matches.length; i++) {
+            let toInject: number[] = [];
+            for (let i = 0; i < occurrences.length; i++) {
                 if (Math.random() < 0.4) toInject.push(i);
             }
-            if (toInject.length === 0 && matches.length > 0) toInject.push(0);
+            if (toInject.length === 0 && occurrences.length > 0) toInject.push(0);
             if (toInject.length > maxInjects) toInject.length = maxInjects;
+            
             let out = code;
-            for (let i = matches.length - 1; i >= 0; i--) {
+            for (let i = occurrences.length - 1; i >= 0; i--) {
                 if (toInject.includes(i)) {
                     let g = garbs[Math.floor(Math.random() * garbs.length)];
-                    out = out.substring(0, matches[i].index) + ' do ' + g + ' end local ' + out.substring(matches[i].index + 6);
+                    const idx = occurrences[i];
+                    out = out.substring(0, idx) + ' do ' + g + ' end local ' + out.substring(idx + 6);
                 }
             }
             return out;
