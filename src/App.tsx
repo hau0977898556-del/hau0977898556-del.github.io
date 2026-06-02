@@ -205,6 +205,57 @@ export const PRESET_RATINGS: Record<
   "psuOld-Minify": { security: 0, speed: 5, entropy: 0 },
 };
 
+interface TypewriterProps {
+  phrases: string[];
+  speed?: number;
+  delayBetween?: number;
+  className?: string;
+}
+
+export const TypewriterText: React.FC<TypewriterProps> = ({
+  phrases,
+  speed = 35,
+  delayBetween = 2000,
+  className = "",
+}) => {
+  const [currentPhraseIdx, setCurrentPhraseIdx] = useState(0);
+  const [currentText, setCurrentText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const currentFullPhrase = phrases[currentPhraseIdx];
+
+    if (isDeleting) {
+      timer = setTimeout(() => {
+        setCurrentText((prev) => prev.slice(0, -1));
+      }, speed / 1.7);
+    } else {
+      timer = setTimeout(() => {
+        setCurrentText(currentFullPhrase.slice(0, currentText.length + 1));
+      }, speed);
+    }
+
+    if (!isDeleting && currentText === currentFullPhrase) {
+      timer = setTimeout(() => {
+        setIsDeleting(true);
+      }, delayBetween);
+    } else if (isDeleting && currentText === "") {
+      setIsDeleting(false);
+      setCurrentPhraseIdx((prev) => (prev + 1) % phrases.length);
+    }
+
+    return () => clearTimeout(timer);
+  }, [currentText, isDeleting, currentPhraseIdx, phrases, speed, delayBetween]);
+
+  return (
+    <span className={className}>
+      {currentText}
+      <span className="w-1.5 h-4 ml-1.5 bg-indigo-400 inline-block animate-pulse align-middle" style={{ animationDuration: "0.8s" }} />
+    </span>
+  );
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<
     "intro" | "home" | "docs" | "psu_old" | "settings"
@@ -1662,7 +1713,12 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                 className="max-w-5xl mx-auto w-full space-y-12 py-4 px-3 md:px-0"
               >
                 {/* HERO BANNER SECTION */}
-                <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-950/20 via-zinc-950/40 to-black/60 p-8 md:p-12 text-center space-y-6 shadow-2xl backdrop-blur-3xl">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.97 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.45, ease: "easeOut" }}
+                  className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-950/20 via-zinc-950/40 to-black/60 p-8 md:p-12 text-center space-y-6 shadow-2xl backdrop-blur-3xl"
+                >
                   {/* Subtle ambient blur background */}
                   <div className="absolute -top-24 -left-20 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
                   <div className="absolute -bottom-24 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -1680,9 +1736,22 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                     </p>
                   </div>
 
-                  <p className="text-zinc-400 text-sm md:text-base max-w-2xl mx-auto leading-relaxed">
-                    MinRay is a powerful & fast obfuscator for Lua 5.1 and Luau, lightweight and it's free!
-                  </p>
+                  <div className="text-zinc-400 text-sm md:text-base max-w-2xl mx-auto min-h-[48px] flex items-center justify-center leading-relaxed">
+                    <p className="inline-flex items-center gap-1.5 flex-wrap justify-center">
+                      <span className="text-indigo-400 font-mono font-bold animate-pulse">&gt;</span>
+                      <TypewriterText 
+                        phrases={[
+                          "MinRay is a powerful & fast obfuscator for Lua 5.1 and Luau.",
+                          "Advanced Virtualization & Control Flow Flattening protect your script.",
+                          "Anti-Hook Security Matrix stops memory dumpers and hookers in their tracks.",
+                          "Zero-overhead bytecode execution preserves optimal script performance."
+                        ]}
+                        speed={32}
+                        delayBetween={2200}
+                        className="text-zinc-350 font-sans font-medium hover:text-white transition duration-200"
+                      />
+                    </p>
+                  </div>
 
                   <div className="pt-3 flex flex-wrap gap-4 items-center justify-center font-mono text-xs">
                     <button
@@ -1700,7 +1769,7 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                       API Credentials Setup
                     </button>
                   </div>
-                </div>
+                </motion.div>
 
                 {/* THE CORE SECURITY ARCHITECTURE SECTION (ANTI HACK GATES) */}
                 <div className="space-y-6">
@@ -1717,7 +1786,21 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <motion.div 
+                    variants={{
+                      hidden: { opacity: 0 },
+                      show: {
+                        opacity: 1,
+                        transition: {
+                          staggerChildren: 0.08,
+                          delayChildren: 0.1
+                        }
+                      }
+                    }}
+                    initial="hidden"
+                    animate="show"
+                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+                  >
                     {[
                       {
                         icon: (
@@ -1742,9 +1825,27 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                         desc: "Delivers fast, smooth, and highly efficient execution for your obfuscated script.",
                       },
                     ].map((item, i) => (
-                      <div
+                      <motion.div
                         key={i}
-                        className="bg-white/[0.02] border border-white/10 p-5 rounded-2xl space-y-3 backdrop-blur-md hover:border-indigo-500/20 transition duration-200"
+                        variants={{
+                          hidden: { opacity: 0, y: 15 },
+                          show: { 
+                            opacity: 1, 
+                            y: 0, 
+                            transition: { 
+                              type: "spring", 
+                              stiffness: 90, 
+                              damping: 14 
+                            } 
+                          }
+                        }}
+                        whileHover={{ 
+                          y: -4, 
+                          scale: 1.02,
+                          borderColor: "rgba(99, 102, 241, 0.4)",
+                          backgroundColor: "rgba(255, 255, 255, 0.04)"
+                        }}
+                        className="bg-white/[0.02] border border-white/10 p-5 rounded-2xl space-y-3 backdrop-blur-md transition-all duration-300 cursor-default shadow-lg"
                       >
                         <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl w-fit">
                           {item.icon}
@@ -1755,9 +1856,9 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                         <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
                           {item.desc}
                         </p>
-                      </div>
+                      </motion.div>
                     ))}
-                  </div>
+                  </motion.div>
                 </div>
 
                 {/* INTERACTIVE COMPILER STACK VISUAL SHOWCASE */}
