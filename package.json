@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "start": "node dist/server.cjs",
+    "dev": "NODE_OPTIONS='--expose-gc' tsx server.ts",
+    "start": "node --expose-gc dist/server.cjs",
     "build": "vite build && npx esbuild server.ts --outfile=dist/server.cjs --format=cjs --platform=node",
     "preview": "vite preview",
     "clean": "rm -rf dist",

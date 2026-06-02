@@ -35,7 +35,7 @@ function buildSpawnArgs(preset: string, filename: string, outFileName: string) {
 import { LuaFactory } from 'wasmoon';
 
 // Global factory to avoid re-reading files and re-initializing WASM on every request
-const factory = new LuaFactory();
+let factory = new LuaFactory();
 let factoryInitPromise: Promise<void> | null = null;
 const psuDir = path.resolve(process.cwd(), 'psu/Prometheus-0.2.9/src');
 const psuOldDir = path.resolve(process.cwd(), 'psu_old/Prometheus-master/src');
@@ -65,19 +65,32 @@ function initLuaFactory() {
   return factoryInitPromise;
 }
 
+async function recycleLuaFactory() {
+  console.log("[Memory Manager] Re-creating LuaFactory to release occupied WebAssembly memory pages...");
+  factory = new LuaFactory();
+  factoryInitPromise = null;
+  await initLuaFactory();
+  if (global.gc) {
+    try {
+      global.gc();
+      console.log(`[Memory Manager] Garbage collector triggered successfully. Host RSS is now at ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)}MB`);
+    } catch (e) {
+      console.warn("[Memory Manager] GC trigger error:", e);
+    }
+  }
+}
+
 // Initialize immediately on server start
 initLuaFactory().catch(console.error);
 
 async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld: boolean = false): Promise<string> {
   const currentMemoryRssMb = process.memoryUsage().rss / 1024 / 1024;
-  if (currentMemoryRssMb > 400) {
-    console.warn(`[Memory Warning] High memory detected: ${currentMemoryRssMb.toFixed(1)}MB. Slower obfuscation speed activated...`);
-    if (global.gc) {
-      try { global.gc(); } catch (e) {}
-    }
-    await new Promise(resolve => setTimeout(resolve, 2000));
+  if (currentMemoryRssMb > 300) {
+    console.warn(`[Memory Warning] High memory detected inside Prometheus: ${currentMemoryRssMb.toFixed(1)}MB. Recreating WASM state...`);
+    await recycleLuaFactory();
+  } else {
+    await initLuaFactory();
   }
-  await initLuaFactory();
   const lua = await factory.createEngine();
 
   try {
@@ -283,7 +296,7 @@ async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld:
     throw e;
   } finally {
     try {
-      (lua as any).close();
+      lua.global.close();
     } catch (e) {
       console.warn("Error closing lua engine instance:", e);
     }
@@ -1149,12 +1162,9 @@ app.post('/api/obfuscate', async (req, res) => {
     const isSpecialUnlimitedKey = (providedKey && providedKey.trim().toUpperCase() === 'MINRAYAPI-W6ZMWT');
 
     const currentMemoryRssMb = process.memoryUsage().rss / 1024 / 1024;
-    if (!isSpecialUnlimitedKey && currentMemoryRssMb > 400) {
-      console.warn(`[Memory Warning] High entry memory detected: ${currentMemoryRssMb.toFixed(1)}MB. Slower obfuscation speed activated...`);
-      if (global.gc) {
-        try { global.gc(); } catch (e) {}
-      }
-      await new Promise(resolve => setTimeout(resolve, 3000));
+    if (!isSpecialUnlimitedKey && currentMemoryRssMb > 300) {
+      console.warn(`[Memory Warning] High entry memory detected: ${currentMemoryRssMb.toFixed(1)}MB. Purging memory cache now...`);
+      await recycleLuaFactory();
     }
     
     // 1. Anti-Hack Validation Guards
