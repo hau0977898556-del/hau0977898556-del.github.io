@@ -1,0 +1,1 @@
+local v = `hello {World}`

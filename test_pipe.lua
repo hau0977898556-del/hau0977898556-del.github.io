@@ -1,0 +1,1 @@
+local p = require("prometheus"); local pipe = p.Pipeline:fromConfig({LuaVersion="LuaU", Steps={{Name="ProxifyLocals", Settings={}}}}); local o = pipe:apply("local a=456; print(a)", "test"); print("OUT:", o)

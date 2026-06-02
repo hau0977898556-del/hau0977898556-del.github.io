@@ -1,0 +1,1 @@
+wd = {} (function() end)()

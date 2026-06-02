@@ -1,0 +1,6 @@
+{
+  "name": "MinRay",
+  "description": "Lua Script Obfuscation as a Service",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
