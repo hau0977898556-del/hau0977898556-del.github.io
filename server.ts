@@ -779,7 +779,7 @@ return loadedFn()`;
                 "(function() local _=false end)();",
                 "do local _v = {}; end;"
             ];
-            let matches = [...code.matchAll(/local /g)];
+            let matches = [...code.matchAll(/\blocal /g)];
             let maxInjects = Math.max(10, Math.floor(matches.length * 0.15));
             if (maxInjects > 50) maxInjects = 50;
             let toInject = [];
