@@ -30,6 +30,22 @@ local function escapeString(str)
 	return str;
 end
 
+local function getHangulKey(n)
+	local hf = "\227\133\164"
+	if n == 0 then return hf end
+	local result = hf
+	local temp = n
+	while temp > 0 do
+		if temp % 2 == 1 then
+			result = result .. " "
+		else
+			result = result .. hf
+		end
+		temp = math.floor(temp / 2)
+	end
+	return result
+end
+
 function Unparser:new(settings)
 	local luaVersion = settings.LuaVersion or LuaVersion.LuaU;
 	local conventions = Enums.Conventions[luaVersion];
@@ -162,6 +178,31 @@ function Unparser:unparseStatement(statement, tabbing)
 		end
 	end
 
+	if statement.kind == AstKind.LocalVariableDeclaration then
+		for i, id in ipairs(statement.ids) do
+			local name = statement.scope:getVariableName(id);
+			if name == "CE" then
+				local expr = statement.expressions[i]
+				if expr and expr.kind == AstKind.TableConstructorExpression then
+					expr.isCETable = true
+				end
+			end
+		end
+	elseif statement.kind == AstKind.AssignmentStatement then
+		for i, primary_expr in ipairs(statement.lhs) do
+			local name
+			if primary_expr.kind == AstKind.VariableExpression or primary_expr.kind == AstKind.AssignmentVariable then
+				name = primary_expr.scope:getVariableName(primary_expr.id)
+			end
+			if name == "CE" then
+				local expr = statement.rhs[i]
+				if expr and expr.kind == AstKind.TableConstructorExpression then
+					expr.isCETable = true
+				end
+			end
+		end
+	end
+
 	if(statement.kind == AstKind.ContinueStatement) then
 		push("continue");
 
@@ -231,6 +272,7 @@ function Unparser:unparseStatement(statement, tabbing)
 	elseif(statement.kind == AstKind.IfStatement) then
 		local exprcode = self:unparseExpression(statement.condition, tabbing);
 		local bodyCode = self:unparseBlock(statement.body, tabbing);
+
 		push("if", self:whitespaceIfNeeded(exprcode), exprcode, self:whitespaceIfNeeded2(exprcode), "then",
 			self:whitespaceIfNeeded(bodyCode, self:newline(true)), bodyCode);
 
@@ -416,6 +458,21 @@ function Unparser:unparseExpression(expression, tabbing)
 	end
 
 	if(expression.kind == AstKind.NumberExpression) then
+		local val = expression.value
+		if type(val) == "number" and val == math.floor(val) and math.abs(val) <= 1e12 then
+			local sign = val < 0 and "-" or ""
+			local abs_val = math.abs(val)
+			-- Deterministic picker with rare hex distribution and no binary formatting
+			local hVal = (abs_val * 31 + 17) % 100
+			if hVal < 5 then
+				-- Convert to hexadecimal (0x... / 0X...)
+				local prefix = hVal % 2 == 0 and "0x" or "0X"
+				local format_str = hVal % 3 == 0 and "%x" or "%X"
+				local hex_str = string.format(format_str, abs_val)
+				return sign .. prefix .. hex_str
+			end
+		end
+
 		local str = tostring(expression.value);
 		if(str == "inf") then
 			return "2e1024"
@@ -587,8 +644,21 @@ function Unparser:unparseExpression(expression, tabbing)
 			return base .. "." .. expression.index.value;
 		end
 
-		-- Index never needs parens
-		local index = self:unparseExpression(expression.index, tabbing);
+		-- Index never needs parens (Use Hangul keys if integer on CE table)
+		local index;
+		local isCE = false
+		if expression.base.kind == AstKind.VariableExpression or expression.base.kind == AstKind.AssignmentVariable then
+			local name = expression.base.scope:getVariableName(expression.base.id)
+			if name == "CE" then
+				isCE = true
+			end
+		end
+
+		if isCE and expression.index.kind == AstKind.NumberExpression and type(expression.index.value) == "number" and expression.index.value == math.floor(expression.index.value) and expression.index.value >= 0 then
+			index = '"' .. getHangulKey(expression.index.value) .. '"'
+		else
+			index = self:unparseExpression(expression.index, tabbing);
+		end
 		return base .. "[" .. index .. "]";
 	end
 
@@ -674,12 +744,18 @@ function Unparser:unparseExpression(expression, tabbing)
 			if(entry.kind == AstKind.KeyedTableEntry) then
 				if(entry.key.kind == AstKind.StringExpression and self:isValidIdentifier(entry.key.value)) then
 					push(entry.key.value);
+				elseif (expression.isCETable or (entry.key.kind == AstKind.VariableExpression and entry.key.scope and entry.key.scope:getVariableName(entry.key.id) == "CE")) and entry.key.kind == AstKind.NumberExpression and type(entry.key.value) == "number" and entry.key.value == math.floor(entry.key.value) and entry.key.value >= 0 then
+					push('["', getHangulKey(entry.key.value), '"]');
 				else
 					push("[", self:unparseExpression(entry.key, tableTabbing), "]");
 				end
 				push(self:optionalWhitespace(), "=", self:optionalWhitespace(), self:unparseExpression(entry.value, tableTabbing));
 			else
-				push(self:unparseExpression(entry.value, tableTabbing));
+				if expression.isCETable then
+					push('["', getHangulKey(i), '"]', self:optionalWhitespace(), "=", self:optionalWhitespace(), self:unparseExpression(entry.value, tableTabbing));
+				else
+					push(self:unparseExpression(entry.value, tableTabbing));
+				end
 			end
 		end
 

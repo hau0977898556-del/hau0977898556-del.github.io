@@ -187,6 +187,9 @@ end
 
 -- Returns the name of an Variable by id - this is used for unparsing
 function Scope:getVariableName(id)
+	if type(id) == "table" and id.id then
+		id = id.id
+	end
 	return self.variables[id];
 end
 

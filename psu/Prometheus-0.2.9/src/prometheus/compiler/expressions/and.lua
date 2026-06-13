@@ -41,7 +41,7 @@ return function(self, expression, funcDepth, numReturns)
 
     local block1, block2 = self:createBlock(), self:createBlock();
     self:addStatement(self:copyRegisters(scope, {resReg}, {lhsReg}), {resReg}, {lhsReg}, false);
-    self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.OrExpression(Ast.AndExpression(self:register(scope, lhsReg), Ast.NumberExpression(block1.id)), Ast.NumberExpression(block2.id))), {self.POS_REGISTER}, {lhsReg}, false);
+    self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.OrExpression(Ast.AndExpression(self:register(scope, lhsReg), self:crazyExpr(scope, Ast.NumberExpression(block1.id))), self:crazyExpr(scope, Ast.NumberExpression(block2.id)))), {self.POS_REGISTER}, {lhsReg}, false);
     self:freeRegister(lhsReg, false);
     do
         self:setActiveBlock(block1);
@@ -50,7 +50,7 @@ return function(self, expression, funcDepth, numReturns)
         self:addStatement(self:copyRegisters(scope, {resReg}, {rhsReg}), {resReg}, {rhsReg}, false);
         self:freeRegister(rhsReg, false);
 
-        self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.NumberExpression(block2.id)), {self.POS_REGISTER}, {}, false);
+        self:addStatement(self:setRegister(scope, self.POS_REGISTER, self:crazyExpr(scope, Ast.NumberExpression(block2.id))), {self.POS_REGISTER}, {}, false);
     end
 
     self.registers[self.POS_REGISTER] = posState;

@@ -63,6 +63,7 @@ const PRESETS = [
   "psu-Medium",
   "psu-Weak",
   "MinRay V2",
+  "MinRay W?",
   "psu-Minify",
 ];
 
@@ -92,6 +93,15 @@ const PRESET_DETAILS: Record<
     secureColor:
       "from-yellow-500/20 to-amber-500/5 text-yellow-300 border-yellow-500/30",
     glowColor: "rgba(234, 179, 8, 0.15)",
+    complexity: "Max",
+  },
+  "MinRay W?": {
+    title: "MinRay W? (Latin VM)",
+    badge: "Latin VM",
+    desc: "Flagship nested VM engine utilizing 100% pure Latin character encoding (a-zA-Z) for bytecode instructions. Features outstanding executor bypass and anti-decompilation mechanics.",
+    secureColor:
+      "from-teal-500/20 to-emerald-500/5 text-teal-300 border-teal-500/30",
+    glowColor: "rgba(20, 184, 166, 0.15)",
     complexity: "Max",
   },
   "psu-Weak": {
@@ -194,6 +204,7 @@ export const PRESET_RATINGS: Record<
   { security: number; speed: number; entropy: number }
 > = {
   "MinRay V2": { security: 5, speed: 2, entropy: 5 },
+  "MinRay W?": { security: 5, speed: 3, entropy: 4 },
   "psu-Weak": { security: 1, speed: 5, entropy: 1 },
   "psu-Medium": { security: 3, speed: 4, entropy: 3 },
   "psu-Strong": { security: 4, speed: 3, entropy: 4 },
@@ -267,6 +278,9 @@ export default function App() {
   // Custom Settings State
   const [softWrap, setSoftWrap] = useState<boolean>(() => {
     return localStorage.getItem("minray_soft_wrap") === "true";
+  });
+  const [noCFF, setNoCFF] = useState<boolean>(() => {
+    return localStorage.getItem("minray_no_cff") === "true";
   });
 
   // Track expanded cards in history list to inspect codes
@@ -870,6 +884,10 @@ export default function App() {
   }, [softWrap]);
 
   useEffect(() => {
+    localStorage.setItem("minray_no_cff", noCFF ? "true" : "false");
+  }, [noCFF]);
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
         dropdownRef.current &&
@@ -1326,7 +1344,8 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
           code: inputCode, 
           preset: activePreset,
           userEmail: user?.email || "",
-          recoveryToken: recoveryToken || ""
+          recoveryToken: recoveryToken || "",
+          noCFF: noCFF
         }),
       });
 
@@ -1520,18 +1539,17 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
               </div>
               <div>
                 <div className="flex items-center gap-2.5">
-                  <h1 className="text-3xl font-extrabold tracking-tight text-white font-display">
+                  <h1 className="text-2xl font-bold tracking-tight text-white">
                     <span className="bg-gradient-to-r from-white via-zinc-200 to-indigo-300 bg-clip-text text-transparent">
                       MinRay
                     </span>
                   </h1>
-                  <span className="px-2.5 py-0.5 text-[9px] uppercase font-bold tracking-widest rounded-full bg-white/[0.04] text-zinc-300 border border-white/10 shadow-inner">
-                    v1.2 Stable
+                  <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-white/[0.04] text-zinc-350 border border-white/10">
+                    v1.2
                   </span>
                 </div>
                 <p className="text-zinc-400 text-xs mt-1">
-                  High-performance virtualization compiler & secure obfuscation
-                  matrix
+                  High-performance Lua 5.1 & Luau Virtualization Compiler
                 </p>
               </div>
             </div>
@@ -1639,7 +1657,7 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
               <div className="hidden md:flex items-center gap-3">
                 {user ? (
                   <div
-                    className={`flex items-center gap-2 border rounded-2xl px-4 py-2 text-xs font-semibold relative ${isPremiumUser ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-indigo-505/10 border-indigo-500/20 text-indigo-300"}`}
+                    className={`flex items-center gap-2 border rounded-2xl px-4 py-2 text-xs font-semibold relative ${isPremiumUser ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-indigo-500/10 border-indigo-500/20 text-indigo-300"}`}
                   >
                     {isPremiumUser ? (
                       <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
@@ -1687,7 +1705,7 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                         setAuthMode("signup");
                         setAuthModalOpen(true);
                       }}
-                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider text-white bg-indigo-505 hover:bg-indigo-600 border border-indigo-500/30 transition shadow-lg shadow-indigo-950/20 active:scale-95 duration-200"
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/30 transition shadow-lg shadow-indigo-950/20 active:scale-95 duration-200"
                     >
                       <User className="w-3.5 h-3.5" />
                       <span>Sign Up</span>
@@ -1756,7 +1774,7 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                   <div className="pt-3 flex flex-wrap gap-4 items-center justify-center font-mono text-xs">
                     <button
                       onClick={() => setActiveTab("home")}
-                      className="px-6 py-3.5 bg-indigo-605 hover:bg-indigo-605 text-white font-bold rounded-2xl flex items-center gap-2 transition duration-200 shadow-xl shadow-indigo-500/10 cursor-pointer transform hover:-translate-y-0.5 active:scale-95 btn-interactive"
+                      className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl flex items-center gap-2 transition duration-200 shadow-xl shadow-indigo-500/10 cursor-pointer transform hover:-translate-y-0.5 active:scale-95 btn-interactive"
                     >
                       <Terminal className="w-4 h-4" />
                       Dashboard
@@ -1892,10 +1910,10 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                       <div className="space-y-4">
                         <div className="flex items-center justify-between border-b border-white/[0.05] pb-2">
                           <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400">
-                            PROTECTED VM BYTECODE (AFTER)
+                            VIRTUALIZED COMPILER OUTPUT
                           </span>
-                          <span className="text-indigo-400 bg-indigo-505/10 border border-indigo-400/20 px-1.5 py-0.5 rounded text-[8px] font-bold font-sans">
-                            VIRTUALIZED
+                          <span className="text-indigo-400 bg-indigo-500/10 border border-indigo-400/20 px-1.5 py-0.5 rounded text-[8px] font-bold font-sans">
+                            COMPLETED
                           </span>
                         </div>
 
@@ -3071,7 +3089,7 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                         setKeyErrorMsg("");
                         setKeySuccessMsg("");
                       }}
-                      className="px-4 py-2 text-[11px] font-bold text-indigo-400 bg-indigo-505/10 border border-indigo-400/25 hover:bg-white/[0.04] hover:text-white active:scale-95 transition-all duration-200 rounded-xl flex items-center justify-center gap-2 font-mono cursor-pointer"
+                      className="px-4 py-2 text-[11px] font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-400/25 hover:bg-white/[0.04] hover:text-white active:scale-95 transition-all duration-200 rounded-xl flex items-center justify-center gap-2 font-mono cursor-pointer"
                     >
                       <Key className="w-3.5 h-3.5 text-indigo-400" />
                       {showApiKeyInput ? "Hide import panel" : "You have an api key?"}
@@ -3428,6 +3446,29 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                       </button>
                     </div>
 
+                    {/* DISABLE CFF ROW */}
+                    <div className="flex items-center justify-between py-2 border-b border-white/[0.03]">
+                      <div>
+                        <h4 className="text-xs font-bold text-white">
+                          Disable CFF inside VM
+                        </h4>
+                        <p className="text-[10px] text-zinc-500">
+                          Bypass VM AST flattening and compile bytecode to a direct flat lookup table for smaller size and maximum FPS
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setNoCFF(!noCFF)}
+                        className="text-indigo-400 hover:text-indigo-300 transition duration-150"
+                      >
+                        {noCFF ? (
+                          <ToggleRight className="w-8 h-8 text-indigo-500" />
+                        ) : (
+                          <ToggleLeft className="w-8 h-8 text-zinc-650" />
+                        )}
+                      </button>
+                    </div>
+
                     {/* RECOVERY SECTION */}
                     <div className="pt-3 space-y-3">
                       <div className="flex items-center gap-2">
@@ -3678,7 +3719,7 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                             setAuthMode("login");
                             setAuthModalOpen(true);
                           }}
-                          className="w-full py-3 px-4 rounded-xl bg-indigo-505 hover:bg-indigo-600 text-white text-xs font-bold uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
+                          className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
                         >
                           <LogIn className="w-4 h-4" />
                           Connect to Cloud
@@ -3807,7 +3848,7 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                                   onClick={() => toggleRecordExpand(rec.id)}
                                   className={`p-2 px-3 rounded-xl border font-semibold text-[9px] uppercase font-mono tracking-wider flex items-center gap-1 transition-all ${
                                     isExpanded
-                                      ? "border-indigo-505/30 bg-indigo-505/20 text-indigo-300 hover:bg-indigo-505/30"
+                                      ? "border-indigo-500/30 bg-indigo-500/20 text-indigo-350 hover:bg-indigo-500/35"
                                       : "border-white/5 bg-white/[0.02] text-zinc-400 hover:text-white hover:bg-white/[0.03]"
                                   }`}
                                 >
@@ -3820,7 +3861,7 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                                 <button
                                   type="button"
                                   onClick={() => handleRestoreRecord(rec)}
-                                  className="p-2 px-3 rounded-xl border border-white/5 bg-white/[0.03] text-zinc-400 hover:text-white hover:bg-indigo-505 hover:border-indigo-500/30 transition shadow-sm font-semibold text-[9px] uppercase font-mono tracking-wider flex items-center gap-1"
+                                  className="p-2 px-3 rounded-xl border border-white/5 bg-white/[0.03] text-zinc-400 hover:text-white hover:bg-indigo-600 hover:border-indigo-500/30 transition shadow-sm font-semibold text-[9px] uppercase font-mono tracking-wider flex items-center gap-1"
                                 >
                                   <Play className="w-3 h-3 fill-current" />
                                   <span>Load</span>
@@ -4059,7 +4100,7 @@ echo "Compilation successful! Written protected code to minray_secured.lua"`;
                 <button
                   type="submit"
                   disabled={authLoading}
-                  className="w-full py-3.5 rounded-xl bg-indigo-505 hover:bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest transition duration-200 flex items-center justify-center gap-2 disabled:opacity-40 select-none shadow-md shadow-indigo-500/5 mt-2"
+                  className="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-widest transition duration-200 flex items-center justify-center gap-2 disabled:opacity-40 select-none shadow-md shadow-indigo-500/5 mt-2"
                 >
                   {authLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin text-white" />

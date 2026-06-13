@@ -8,6 +8,7 @@ import tmp from 'tmp';
 import zstd from '@mongodb-js/zstd';
 import luamin from 'luamin';
 import dotenv from 'dotenv';
+import lzma from 'lzma';
 
 dotenv.config();
 
@@ -80,7 +81,7 @@ async function recycleLuaFactory() {
 // Initialize immediately on server start
 initLuaFactory().catch(console.error);
 
-async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld: boolean = false): Promise<string> {
+export async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld: boolean = false, noCFF: boolean = false): Promise<string> {
   await initLuaFactory();
   const currentMemoryRssMb = process.memoryUsage().rss / 1024 / 1024;
   if (currentMemoryRssMb > 300) {
@@ -129,7 +130,7 @@ async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld:
           Steps = {
             { Name = "EncryptStrings", Settings = {} },
             { Name = "AntiTamper", Settings = { UseDebug = false } },
-            { Name = "Vmify", Settings = {} },
+            { Name = "Vmify", Settings = { NoCFF = ${noCFF} } },
             { Name = "WrapInFunction", Settings = {} }
           }
         }
@@ -144,7 +145,7 @@ async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld:
             { Name = "AddVararg", Settings = {} },
             { Name = "EncryptStrings", Settings = {} },
             { Name = "AntiTamper", Settings = { UseDebug = false } },
-            { Name = "Vmify", Settings = {} },
+            { Name = "Vmify", Settings = { NoCFF = ${noCFF} } },
             { Name = "WrapInFunction", Settings = {} }
           }
         }
@@ -174,7 +175,7 @@ async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld:
             { Name = "AddVararg", Settings = {} },
             { Name = "EncryptStrings", Settings = {} },
             { Name = "AntiTamper", Settings = { UseDebug = false } },
-            { Name = "Vmify", Settings = {} },
+            { Name = "Vmify", Settings = { NoCFF = ${noCFF} } },
             { Name = "WrapInFunction", Settings = {} }
           }
         }
@@ -199,7 +200,7 @@ async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld:
           Steps = {
             { Name = "EncryptStrings", Settings = {} },
             { Name = "AntiTamper", Settings = { UseDebug = false } },
-            { Name = "Vmify", Settings = {} },
+            { Name = "Vmify", Settings = { NoCFF = ${noCFF} } },
             { Name = "WrapInFunction", Settings = {} }
           }
         }
@@ -213,7 +214,7 @@ async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld:
           Steps = {
             { Name = "EncryptStrings", Settings = {} },
             { Name = "AntiTamper", Settings = { UseDebug = false } },
-            { Name = "Vmify", Settings = {} },
+            { Name = "Vmify", Settings = { NoCFF = ${noCFF} } },
             { Name = "WrapInFunction", Settings = {} }
           }
         }
@@ -226,7 +227,7 @@ async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld:
           Seed = 0,
           Steps = {
             { Name = "EncryptStrings", Settings = {} },
-            { Name = "Vmify", Settings = {} },
+            { Name = "Vmify", Settings = { NoCFF = ${noCFF} } },
             { Name = "WrapInFunction", Settings = {} }
           }
         }
@@ -240,7 +241,7 @@ async function obfuscateWithPrometheus(code: string, presetLevel: string, isOld:
           Steps = {
             { Name = "EncryptStrings", Settings = {} },
             { Name = "AntiTamper", Settings = { UseDebug = false } },
-            { Name = "Vmify", Settings = {} },
+            { Name = "Vmify", Settings = { NoCFF = ${noCFF} } },
             { Name = "WrapInFunction", Settings = {} }
           }
         }
@@ -346,118 +347,218 @@ function convertLuauStringInterpolation(code: string): string {
     });
 }
 
-function safeLuauMinify(code: string): string {
-    let result = '';
-    let i = 0;
-    const len = code.length;
-
-    while (i < len) {
-        const char = code[i];
-
-        // 1. Double-quoted string
-        if (char === '"') {
-            result += '"';
-            i++;
-            while (i < len) {
-                const c = code[i];
-                if (c === '\\') {
-                    result += '\\' + (code[i + 1] || '');
-                    i += 2;
-                } else if (c === '"') {
-                    result += '"';
-                    i++;
-                    break;
-                } else {
-                    result += c;
-                    i++;
-                }
-            }
-            continue;
-        }
-
-        // 2. Single-quoted string
-        if (char === "'") {
-            result += "'";
-            i++;
-            while (i < len) {
-                const c = code[i];
-                if (c === '\\') {
-                    result += '\\' + (code[i + 1] || '');
-                    i += 2;
-                } else if (c === "'") {
-                    result += "'";
-                    i++;
-                    break;
-                } else {
-                    result += c;
-                    i++;
-                }
-            }
-            continue;
-        }
-
-        // 3. Multi-line string or comment
-        if (char === '[' && i + 1 < len && (code[i + 1] === '[' || code[i + 1] === '=')) {
-            let eqCount = 0;
-            let j = i + 1;
-            while (j < len && code[j] === '=') {
-                eqCount++;
-                j++;
-            }
-            if (j < len && code[j] === '[') {
-                const startIdx = i;
-                const endBracket = ']' + '='.repeat(eqCount) + ']';
-                const endIdx = code.indexOf(endBracket, j + 1);
-                if (endIdx !== -1) {
-                    result += code.slice(startIdx, endIdx + endBracket.length);
-                    i = endIdx + endBracket.length;
-                    continue;
-                }
-            }
-        }
-
-        // 4. Comment (single-line or multi-line)
-        if (char === '-' && i + 1 < len && code[i + 1] === '-') {
-            i += 2;
-            if (i < len && code[i] === '[') {
-                let eqCount = 0;
-                let j = i + 1;
-                while (j < len && code[j] === '=') {
-                    eqCount++;
-                    j++;
-                }
-                if (j < len && code[j] === '[') {
-                    const endBracket = ']' + '='.repeat(eqCount) + ']';
-                    const endIdx = code.indexOf(endBracket, j + 1);
-                    if (endIdx !== -1) {
-                        i = endIdx + endBracket.length;
-                        result += ' ';
-                        continue;
-                    }
-                }
-            }
-            while (i < len && code[i] !== '\n' && code[i] !== '\r') {
-                i++;
-            }
-            result += ' ';
-            continue;
-        }
-
-        // 5. Standard character
-        result += char;
-        i++;
-    }
-
-    return result
-        .replace(/[ \t]+/g, ' ')
-        .replace(/\r/g, '')
-        .replace(/\n\s*\n/g, '\n')
-        .replace(/^[ \t]+/gm, '')
-        .replace(/[ \t]+$/gm, '')
-        .trim();
+interface LuaToken {
+  type: 'string' | 'comment' | 'code';
+  value: string;
 }
 
-function obfuscate(code: string, preset: string, antiFormat: boolean = false): Promise<string> {
+function tokenizeLua(code: string): LuaToken[] {
+  const tokens: LuaToken[] = [];
+  let i = 0;
+  const len = code.length;
+
+  while (i < len) {
+    const char = code[i];
+    const nextChar = code[i + 1] || "";
+
+    // 1. Double-quoted string
+    if (char === '"') {
+      let start = i;
+      i++; // skip quote
+      while (i < len) {
+        if (code[i] === '\\') {
+          i += 2; // skip backslash and escaped char
+        } else if (code[i] === '"') {
+          i++; // skip ending quote
+          break;
+        } else {
+          i++;
+        }
+      }
+      tokens.push({ type: 'string', value: code.substring(start, i) });
+      continue;
+    }
+
+    // 2. Single-quoted string
+    if (char === "'") {
+      let start = i;
+      i++; // skip quote
+      while (i < len) {
+        if (code[i] === '\\') {
+          i += 2; // skip backslash and escaped char
+        } else if (code[i] === "'") {
+          i++; // skip ending quote
+          break;
+        } else {
+          i++;
+        }
+      }
+      tokens.push({ type: 'string', value: code.substring(start, i) });
+      continue;
+    }
+
+    // 3. Comments (single-line or block)
+    if (char === '-' && nextChar === '-') {
+      let start = i;
+      i += 2; // skip "--"
+      
+      // Check if it's a block comment: --[[ or --[====[
+      if (i < len && code[i] === '[') {
+        let eqCount = 0;
+        let j = i + 1;
+        while (j < len && code[j] === '=') {
+          eqCount++;
+          j++;
+        }
+        if (j < len && code[j] === '[') {
+          i = j + 1; // past second `[`
+          const endBracket = ']' + '='.repeat(eqCount) + ']';
+          const endIdx = code.indexOf(endBracket, i);
+          if (endIdx !== -1) {
+            i = endIdx + endBracket.length;
+            tokens.push({ type: 'comment', value: code.substring(start, i) });
+            continue;
+          } else {
+            i = len;
+            tokens.push({ type: 'comment', value: code.substring(start, i) });
+            continue;
+          }
+        }
+      }
+      
+      // Single-line comment
+      while (i < len && code[i] !== '\n' && code[i] !== '\r') {
+        i++;
+      }
+      tokens.push({ type: 'comment', value: code.substring(start, i) });
+      continue;
+    }
+
+    // 4. Long bracket string: `[[` or `[=[` etc.
+    if (char === '[' && (nextChar === '[' || nextChar === '=')) {
+      let eqCount = 0;
+      let j = i + 1;
+      while (j < len && code[j] === '=') {
+        eqCount++;
+        j++;
+      }
+      if (j < len && code[j] === '[') {
+        let start = i;
+        i = j + 1; 
+        const endBracket = ']' + '='.repeat(eqCount) + ']';
+        const endIdx = code.indexOf(endBracket, i);
+        if (endIdx !== -1) {
+          i = endIdx + endBracket.length;
+          tokens.push({ type: 'string', value: code.substring(start, i) });
+          continue;
+        } else {
+          i = start;
+        }
+      }
+    }
+
+    // 5. Code segment
+    let start = i;
+    while (i < len) {
+      const c = code[i];
+      const nextC = code[i + 1] || "";
+      if (c === '"' || c === "'" || (c === '-' && nextC === '-') || (c === '[' && (nextC === '[' || nextC === '='))) {
+        break;
+      }
+      i++;
+    }
+    tokens.push({ type: 'code', value: code.substring(start, i) });
+  }
+
+  return tokens;
+}
+
+function getSafeLuaLongBracketWrapper(content: string): string {
+  const rx = /\](=*)\]/g;
+  const usedCounts = new Set<number>();
+  let match;
+  while ((match = rx.exec(content)) !== null) {
+    usedCounts.add(match[1].length);
+  }
+  let numEquals = 0;
+  while (usedCounts.has(numEquals)) {
+    numEquals++;
+  }
+  const eq = "=".repeat(numEquals);
+  return `[${eq}[${content}]${eq}]`;
+}
+
+function compressSpacesLua(code: string): string {
+  const tokens = tokenizeLua(code);
+  let result = '';
+  for (const token of tokens) {
+    if (token.type === 'string') {
+      result += token.value;
+    } else if (token.type === 'comment') {
+      result += ' ';
+    } else {
+      let chunk = token.value;
+      chunk = chunk.replace(/\s+/g, ' ');
+      chunk = chunk.replace(/\s*([()\[\]{}<>=~,;:+\-*\/%^#!])\s*/g, "$1");
+      result += chunk;
+    }
+  }
+  return result.trim();
+}
+
+function safeLuauMinify(code: string): string {
+    return compressSpacesLua(code);
+}
+
+const antiEnvLoggerLua = `if not game:IsLoaded()then pcall(function()game.Loaded:Wait()end)end local _g=getfenv and getfenv()or _ENV local _rawget,_rawset,_rawequal,_type,_typeof,_tostring,_pcall,_error,_math_floor,_os_clock,_string_format,_table_insert=rawget,rawset,rawequal,type,typeof,tostring,pcall,error,math.floor,os.clock,string.format,table.insert local function v13()_pcall(function()_error("MinRay Security Violation")end)end local function check_env()local t=task if _type(t)~="table"or _type(t.spawn)~="function"or _type(t.wait)~="function"or _type(t.delay)~="function"then return false end local ok=false t.spawn(function()ok=true end)_pcall(t.wait,0)return ok end if not check_env()then v13()end local _,partErr=_pcall(function()(Instance.new("Part")):__InvalidMethodXYZ123__()end)if not partErr then v13()end local function verify_services()local gs=game.GetService local svcs={"Players","Workspace","Lighting","ReplicatedStorage","RunService","UserInputService","TweenService","SoundService","CollectionService","HttpService"}for _,s in ipairs(svcs)do if not gs(game,s)then return false end end return true end if not verify_services()then v13()end local function verify_mt()local _t,_k,_v={},"__sentinel_key__",{}_rawset(_t,_k,_v)if not _rawequal(_rawget(_t,_k),_v)then return false end return true end if not verify_mt()then v13()end local sys_flags={luauValue=_ENV==nil or _VERSION=="Luau",gameUserdata=_type(game)=="userdata",wsUserdata=_type(workspace)=="userdata",instTable=_type(Instance)=="table",taskTable=_type(task)=="table",bit32Table=_type(bit32)=="table",bufferTable=_type(buffer)=="table",coClose=_type(coroutine.close)=="function"}local flag_count=0 for _,f in pairs(sys_flags)do if f then flag_count=flag_count+1 end end if flag_count<5 then v13()end local function check_hooks() end check_hooks()local executor_funcs={identifyexecutor,getexecutorname,getreg,getloadedmodules}local detected_ex=0 for _,f in ipairs(executor_funcs)do if _type(f)=="function"then detected_ex=detected_ex+1 end end local last_beat=_os_clock()task.spawn(function()while true do task.wait(0.5)local now=_os_clock()local diff=now-last_beat last_beat=now check_hooks()if not verify_mt()then v13()end end end)`;
+
+function compressLZMA(data: Buffer): Promise<Buffer> {
+  return new Promise((resolve) => {
+    lzma.compress(data, 1, (result) => {
+      resolve(Buffer.from(result));
+    });
+  });
+}
+
+function encodeBase85Special(buf: Buffer): string {
+  const alphabet = '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstu';
+  let result = '';
+  const padding = (4 - (buf.length % 4)) % 4;
+  const paddedBuf = Buffer.concat([buf, Buffer.alloc(padding, 0)]);
+  for (let i = 0; i < paddedBuf.length; i += 4) {
+    const b0 = paddedBuf[i];
+    const b1 = paddedBuf[i+1];
+    const b2 = paddedBuf[i+2];
+    const b3 = paddedBuf[i+3];
+    
+    let V = b0 + b1 * 256 + b2 * 65536 + b3 * 16777216;
+    if (V < 0) V += 4294967296;
+    
+    let chars = '';
+    let rem = V;
+    for (let k = 0; k < 5; k++) {
+      const digit = rem % 85;
+      chars = alphabet[digit] + chars;
+      rem = Math.floor(rem / 85);
+    }
+    result += chars;
+  }
+  return result;
+}
+
+function encodeLatinBase52(buf: Buffer): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let result = '';
+  for (let i = 0; i < buf.length; i++) {
+    const B = buf[i];
+    const high = Math.floor(B / 52);
+    const low = B % 52;
+    result += alphabet[high] + alphabet[low];
+  }
+  return result;
+}
+
+export function obfuscate(code: string, preset: string, antiFormat: boolean = false, noCFF: boolean = false): Promise<string> {
   code = convertLuauStringInterpolation(code);
 
   if (preset === "psu-Minify") {
@@ -469,13 +570,22 @@ function obfuscate(code: string, preset: string, antiFormat: boolean = false): P
   }
 
   // Before obfuscation, minify the code first to improve execution performance and shrink subsequent AST/VM size
-  try {
-    const minified = luamin.minify(code);
-    if (minified && minified.trim().length > 0) {
-      code = minified;
+  // For files larger than 20KB, skip the slow AST-parsing luamin.minify and use safeLuauMinify to be incredibly fast
+  if (code.length < 20000) {
+    try {
+      const minified = luamin.minify(code);
+      if (minified && minified.trim().length > 0) {
+        code = minified;
+      }
+    } catch (minifyErr) {
+      console.warn("Pre-obfuscation minify with luamin skipped due to syntax/unsupported structure, falling back to safeLuauMinify");
+      try {
+        code = safeLuauMinify(code);
+      } catch (fallbackErr) {
+        console.error("Safe fallback minification failed:", fallbackErr);
+      }
     }
-  } catch (minifyErr) {
-    console.warn("Pre-obfuscation minify with luamin skipped due to syntax/unsupported structure, falling back to safeLuauMinify");
+  } else {
     try {
       code = safeLuauMinify(code);
     } catch (fallbackErr) {
@@ -483,291 +593,116 @@ function obfuscate(code: string, preset: string, antiFormat: boolean = false): P
     }
   }
 
-  if (preset === "MinRay V2" || preset === "psu-Compressed" || preset === "psu-ExtraMinify") {
+  if (preset === "MinRay V2" || preset === "MinRay W?" || preset === "psu-Compressed" || preset === "psu-ExtraMinify") {
     return new Promise(async (resolve, reject) => {
       try {
         // No timeout limit as requested
         // For ExtraMinify, we just completely strip variables using luamin, then compress directly.
         // For Compressed, we use Prometheus 'InnerCompressed' to tightly encrypt strings within the logic.
+        let targetCode = code;
+        if (preset.includes("MinRay")) {
+          targetCode = antiEnvLoggerLua + "\n" + code;
+        }
+
         let innerPayload = "";
         let useGarble = true;
         let useWrds = true;
 
         if (preset === "psu-ExtraMinify") {
-            try {
-                // For max FPS in game (0 FPS fix), we don't use ANY Prometheus steps internally.
-                innerPayload = luamin.minify(code);
-                useGarble = true; 
-                useWrds = false;
-            } catch (minErr) {
-                innerPayload = safeLuauMinify(code);
+            if (targetCode.length < 20000) {
+                try {
+                    // For max FPS in game (0 FPS fix), we don't use ANY Prometheus steps internally.
+                    innerPayload = luamin.minify(targetCode);
+                    useGarble = true; 
+                    useWrds = false;
+                } catch (minErr) {
+                    innerPayload = safeLuauMinify(targetCode);
+                    useGarble = true;
+                    useWrds = false;
+                }
+            } else {
+                innerPayload = safeLuauMinify(targetCode);
                 useGarble = true;
                 useWrds = false;
             }
         } else {
             // MinRay V2 / psu-Compressed
-            innerPayload = await obfuscateWithPrometheus(code, "InnerCompressed");
+            innerPayload = await obfuscateWithPrometheus(targetCode, "InnerCompressed", false, noCFF);
             useGarble = true;
             useWrds = true;
         }
         
-        // Compress using MAX level 22
-        const compressedBuffer = await zstd.compress(Buffer.from(innerPayload, 'utf8'), 22);
-        const base64Code = compressedBuffer.toString('base64');
+        const decoy = `local WmA,uWk="!!w_            2   ","      y7J_+]R.                             Q       M        7        z ......!!!"\n`;
+        innerPayload = decoy + innerPayload;
         
-        // Custom ASCII Map to completely destroy any trace of Base64 signatures
-        // so the user gets their "garbage ASCII" look without heavy VM bloat!
-        const std = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-        const rnd = "dIHBWMeYjX(~,cGF}!gL#U?:-|RSO^bP&/*AET)QfD]C;khV.=[{+ZKa$_J%><N@i";
-        
-        let garbled = "";
-        if (useGarble) {
-            for (let i = 0; i < base64Code.length; i++) {
-               garbled += rnd[std.indexOf(base64Code[i])];
+        // Compress using high-performance LZMA!
+        const lzmaCompressedPayload = await compressLZMA(Buffer.from(innerPayload, 'utf8'));
+
+        // Let's construct the inner security/decompressor code w!
+        const innerSecuritySource = `local K = ...
+assert(K, "Invalid payload")
+
+local _pcall = pcall or function(f, ...) return f(...) end
+
+-- Ambient environmental validations
+if not game:IsLoaded() then _pcall(function() game.Loaded:Wait() end) end
+
+-- Execute the decrypted main payload!
+local fn, err = loadstring(K)
+if fn then
+    return fn()
+else
+    error(err)
+end`;
+
+        let minifiedSecurity = innerSecuritySource;
+        try {
+            minifiedSecurity = luamin.minify(innerSecuritySource);
+        } catch (minErr) {
+            try {
+                minifiedSecurity = safeLuauMinify(innerSecuritySource);
+            } catch (fallbackErr) {
+                console.error("Failed to minify inner security code, using raw:", fallbackErr);
             }
-        } else {
-            garbled = base64Code;
         }
-        garbled = "MinRay:" + garbled;
         
-        let wrapperCode = "";
+        // Compress the inner security code using LZMA
+        const lzmaCompressedSecurity = await compressLZMA(Buffer.from(minifiedSecurity, 'utf8'));
+        
+        // Encode appropriately depending on preset (Latin vs Base85)
+        const isLatin = preset === "MinRay W?";
+        const b85Upper = isLatin ? encodeLatinBase52(lzmaCompressedSecurity) : encodeBase85Special(lzmaCompressedSecurity);
+        
+        // Generate random 2-character variable name for Q
+        const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const excludedVars = ["w", "u", "d", "S", "K", "e", "j", "v", "G", "P", "Q", "z", "N"];
+        let randomVar = "";
+        while (true) {
+            let candidate = "";
+            for (let i = 0; i < 2; i++) {
+                candidate += charset[Math.floor(Math.random() * charset.length)];
+            }
+            if (!excludedVars.includes(candidate)) {
+                randomVar = candidate;
+                break;
+            }
+        }
+        
+        // Encode the lower compressed payload
+        const b85Lower = isLatin ? encodeLatinBase52(lzmaCompressedPayload) : encodeBase85Special(lzmaCompressedPayload);
+        
+        let gDecoder = "";
+        if (isLatin) {
+            gDecoder = `G=function(m)m=_sub(m,K);return v(m,"..",function(v)local b1,b2=N(v,1,2);local val=(b1>=97 and b1-97 or b1-65+26)*52+(b2>=97 and b2-97 or b2-65+26);return u(val);end);end`;
+        } else {
+            gDecoder = `G=function(m)m=_sub(m,K);m=v(m,"z","!!!!!");return v(m,".....",function(c)local z,m,W,O,h=N(c,1,5);local V=(h-33)+(O-33)*85+(W-33)*7225+(m-33)*614125+(z-33)*52200625;return Q("<I4",V);end);end`;
+        }
 
-         if (!useWrds) {
-             wrapperCode = "local map = {}\n" +
-"local std = ''\n" +
-"for _, c in ipairs({65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,48,49,50,51,52,53,54,55,56,57,43,47,61}) do std = std .. string.char(c) end\n" +
-"local rnd = 'dIHBWMeYjX(~,cGF}!gL#U?:-|RSO^bP&/*AET)QfD]C;khV.=[{+ZKa$_J%><N@i'\n" +
-"for i=1, 65 do map[rnd:sub(i,i)] = std:sub(i,i) end\n" +
-"local setfenv_str = string.char(115, 101, 116, 102, 101, 110, 118)\n" +
-"local _g = _G and _G[setfenv_str] and _G[setfenv_str]() or getfenv and getfenv() or _ENV\n" +
-"local _gamestr = string.char(103, 97, 109, 101)\n" +
-"local _encodingservstr = string.char(69, 110, 99, 111, 100, 105, 110, 103, 83, 101, 114, 118, 105, 99, 101)\n" +
-"local _bufferstr = string.char(98, 117, 102, 102, 101, 114)\n" +
-"local _loadstringstr = string.char(108, 111, 97, 100, 115, 116, 114, 105, 110, 103)\n" +
-"local _enumstr = string.char(69, 110, 117, 109)\n" +
-"local e = (_g[_gamestr] or game):GetService(_encodingservstr)\n" +
-"local b = (_g[_bufferstr] or buffer).fromstring((...):sub(8):gsub('.', map))\n" +
-"local _enumalgstr = string.char(67, 111, 109, 112, 114, 101, 115, 115, 105, 111, 110, 65, 108, 103, 111, 114, 105, 116, 104, 109)\n" +
-"local _zstdstr = string.char(90, 115, 116, 100)\n" +
-"local _e = _g[_enumstr] or Enum\n" +
-"local _rawget = rawget or function(t,k) return t[k] end\n" +
-"local _db = _rawget(_g, string.char(100,101,98,117,103))\n" +
-"local _info = _db and _rawget(_db, string.char(105,110,102,111))\n" +
-"local function _ck(f)\n" +
-"if not f or not _info then return end\n" +
-"local s, w = pcall(_info, f, 's')\n" +
-"if s and w ~= '[C]' then while true do end end\n" +
-"local s2, l = pcall(_info, f, 'l')\n" +
-"if s2 and l ~= -1 then while true do end end\n" +
-"end\n" +
-"local dummy_tbl = {}\n" +
-"local dummy_mt = {}\n" +
-"pcall(setmetatable, dummy_tbl, dummy_mt)\n" +
-"if getmetatable and getmetatable(dummy_tbl) ~= dummy_mt then while true do end end\n" +
-"local _t1, _t2 = {}, {}\n" +
-"if rawequal(_t1, _t1) == false or rawequal(_t1, _t2) == true then while true do end end\n" +
-"if type(1) ~= 'number' or type('') ~= 'string' or type(true) ~= 'boolean' or type({}) ~= 'table' or type(function() end) ~= 'function' then while true do end end\n" +
-"if string.char(65) ~= 'A' or string.byte('A') ~= 65 then while true do end end\n" +
-"local p_ok, p_err = pcall(function() error('trap') end)\n" +
-"if p_ok or not p_err then while true do end end\n" +
-"if _info then\n" +
-"local function dummy() end\n" +
-"local sd, wd = pcall(_info, dummy, 's')\n" +
-"if sd and wd == '[C]' then while true do end end\n" +
-"local sd2, ld = pcall(_info, dummy, 'l')\n" +
-"if sd2 and ld == -1 then while true do end end\n" +
-"_ck(_info)\n" +
-"_ck((_g[_gamestr] or game).GetService)\n" +
-"_ck(e.DecompressBuffer)\n" +
-"_ck(e.Base64Decode)\n" +
-"_ck(loadstring)\n" +
-"_ck(pcall)\n" +
-"_ck(xpcall)\n" +
-"_ck(rawget)\n" +
-"_ck(getmetatable)\n" +
-"_ck(setmetatable)\n" +
-"_ck(rawequal)\n" +
-"_ck(type)\n" +
-"_ck(tostring)\n" +
-"_ck(error)\n" +
-"_ck(_rawget(_g, string.char(112,114,105,110,116)))\n" +
-"_ck(_rawget(_g, string.char(119,97,114,110)))\n" +
-"_ck(_rawget(_g, string.char(101,114,114,111,114)))\n" +
-"_ck(_rawget(_g, string.char(103,101,116,102,101,110,118)))\n" +
-"_ck(_rawget(_g, string.char(115,101,116,102,101,110,118)))\n" +
-"_ck(_rawget(_g, string.char(116,97,115,107)))\n" +
-"local _xtask = _rawget(_g, string.char(116,97,115,107))\n" +
-"if _xtask then _ck(_xtask.spawn) _ck(_xtask.delay) _ck(_xtask.defer) end\n" +
-"end\n" +
-"local _libs = {math, string, table, coroutine, debug, os, buffer, task, utf8, _g, _G, shared}\n" +
-"for i = 1, #_libs do\n" +
-"local lib = _libs[i]\n" +
-"if lib and getmetatable and getmetatable(lib) then while true do end end\n" +
-"end\n" +
-"local _mt = getmetatable and getmetatable(_g[_gamestr] or game)\n" +
-"if _mt and type(_mt) == 'table' then while true do end end\n" +
-"if getmetatable and getmetatable(_g) then while true do end end\n" +
-"local _mt2 = getmetatable and getmetatable(e)\n" +
-"if _mt2 and type(_mt2) == 'table' then while true do end end\n" +
-"local d = e:DecompressBuffer(e:Base64Decode(b), _e[_enumalgstr][_zstdstr])\n" +
-"local fn, err = (_g[_loadstringstr] or loadstring)((_g[_bufferstr] or buffer).tostring(d))\n" +
-"if fn then return fn() else error(err) end";
-         } else {
-             wrapperCode = `local _g = getfenv and getfenv() or _ENV
-local _rawget = rawget or function(t, k) return t[k] end
-
-
-local _game = _rawget(_g, string.char(103, 97, 109, 101)) or game
-local _buffer = _rawget(_g, string.char(98, 117, 102, 102, 101, 114)) or buffer
-local _loadstring = _rawget(_g, string.char(108, 111, 97, 100, 115, 116, 114, 105, 110, 103)) or loadstring
-
--- Bypass hookers using metamethods
-local _getService = _game[string.char(71, 101, 116, 83, 101, 114, 118, 105, 99, 101)]
-local _enc_s = _getService(_game, string.char(69, 110, 99, 111, 100, 105, 110, 103, 83, 101, 114, 118, 105, 99, 101))
-
--- Base64 payload will be passed via vararg wrapper to keep it clean and out of VM parser!
-local _b64 = (...)
-
--- [ANTI-HOOK SECURITY MATRIX FOR ZSTD API]
-local _db = _rawget(_g, string.char(100, 101, 98, 117, 103))
-local _info = _db and _rawget(_db, string.char(105, 110, 102, 111))
-local function _ck(f)
-    if not f or not _info then return end
-    local s, w = pcall(_info, f, "s")
-    if s and w ~= "[C]" then while true do end end
-    local s2, l = pcall(_info, f, "l")
-    if s2 and l ~= -1 then while true do end end
-end
-local dummy_tbl = {}
-local dummy_mt = {}
-pcall(setmetatable, dummy_tbl, dummy_mt)
-if getmetatable(dummy_tbl) ~= dummy_mt then while true do end end
-
-local _t1, _t2 = {}, {}
-if rawequal(_t1, _t1) == false or rawequal(_t1, _t2) == true then while true do end end
-if type(1) ~= "number" or type("") ~= "string" or type(true) ~= "boolean" or type({}) ~= "table" or type(function() end) ~= "function" then while true do end end
-if string.char(65) ~= "A" or string.byte("A") ~= 65 then while true do end end
-local p_ok, p_err = pcall(function() error("trap") end)
-if p_ok or not p_err then while true do end end
-
-if _info then
-    -- Verify debug.info itself is a real untouched C-function
-    local s1, w1 = pcall(_info, _info, "s")
-    if not s1 or w1 ~= "[C]" then while true do end end
-    local s2, l2 = pcall(_info, _info, "l")
-    if not s2 or l2 ~= -1 then while true do end end
-
-    -- Verify custom Lua closure cannot spoof C-function format
-    local function dummy() end
-    local sd, wd = pcall(_info, dummy, "s")
-    if sd and wd == "[C]" then while true do end end
-    local sd2, ld = pcall(_info, dummy, "l")
-    if sd2 and ld == -1 then while true do end end
-
-    _ck(_info)
-    _getService = _game[string.char(71, 101, 116, 83, 101, 114, 118, 105, 99, 101)] or game.GetService
-    _ck(_getService)
-    if _enc_s then
-        _ck(_enc_s.DecompressBuffer)
-        _ck(_enc_s.Base64Decode)
-    end
-    if _buffer then
-        _ck(_buffer.fromstring)
-        _ck(_buffer.tostring)
-    end
-    _ck(_loadstring)
-    _ck(pcall)
-    _ck(xpcall)
-    _ck(rawget)
-    _ck(getmetatable)
-    _ck(setmetatable)
-    _ck(rawequal)
-    _ck(type)
-    _ck(tostring)
-    _ck(error)
-    _ck(_rawget(_g, string.char(112, 114, 105, 110, 116)))
-    _ck(_rawget(_g, string.char(119, 97, 114, 110)))
-    _ck(_rawget(_g, string.char(101, 114, 114, 111, 114)))
-    _ck(_rawget(_g, string.char(103, 101, 116, 102, 101, 110, 118)))
-    _ck(_rawget(_g, string.char(115, 101, 116, 102, 101, 110, 118)))
-    _ck(_rawget(_g, string.char(116, 97, 115, 107)))
-    local _xtask = _rawget(_g, string.char(116, 97, 115, 107))
-    if _xtask then
-        _ck(_xtask.spawn)
-        _ck(_xtask.delay)
-        _ck(_xtask.defer)
-    end
-end
-
-local _libs = {math, string, table, coroutine, debug, os, buffer, task, utf8, _g, _G, shared}
-for i = 1, #_libs do
-    local lib = _libs[i]
-    if lib and getmetatable(lib) then while true do end end
-end
-
-local _mt1 = getmetatable(_game)
-if _mt1 and type(_mt1) == "table" then while true do end end
-if getmetatable(_g) then while true do end end
-if _enc_s then
-    local _mt2 = getmetatable(_enc_s)
-    if _mt2 and type(_mt2) == "table" then while true do end end
-end
-
-local _b64Buf = _buffer[string.char(102, 114, 111, 109, 115, 116, 114, 105, 110, 103)](_b64)
-local _binBuf = _enc_s[string.char(66, 97, 115, 101, 54, 52, 68, 101, 99, 111, 100, 101)](_enc_s, _b64Buf)
-local _e = _rawget(_g, string.char(69, 110, 117, 109)) or Enum
-local _decBuf = _enc_s[string.char(68, 101, 99, 111, 109, 112, 114, 101, 115, 115, 66, 117, 102, 102, 101, 114)](_enc_s, _binBuf, _e[string.char(67, 111, 109, 112, 114, 101, 115, 115, 105, 111, 110, 65, 108, 103, 111, 114, 105, 116, 104, 109)][string.char(90, 115, 116, 100)])
-local _scriptStr = _buffer[string.char(116, 111, 115, 116, 114, 105, 110, 103)](_decBuf)
-
--- Clear out the buffers immediately so they can't be scraped easily from memory
-_b64Buf = nil
-_binBuf = nil
-_decBuf = nil
-_payload = nil
-_b64 = nil
-
-local fn, err = _loadstring(_scriptStr)
-if fn then return fn else error(err) end`;
-         }
-
+        const prefix = isLatin ? "LATN" : "MRAY";
+        let finalObfuscated = `return(function()local w,u,d,S,K,e,j,v,G,P=setmetatable,string.char,assert,tostring,5,loadstring or load,unpack or table.unpack,string.gsub,{},pcall;for Q=0,255 do G[Q]=u(Q);end;local Q,_sub,N=string.pack,string.sub,string.byte;do G={65479,{0x1B,0x4C,0x75,0x61,0x50},S(e)};for m=1,#G do local W=G[m];local O={P(e,m%2==0 and u(j(W))or W,nil,nil)};if O[1]and P(O[2])~=not O[3]then K=10.0;end;end;end;${gDecoder};local K=G(${getSafeLuaLongBracketWrapper(prefix + b85Upper)});K=_sub(K,1,${lzmaCompressedSecurity.length});local ${randomVar}=G(${getSafeLuaLongBracketWrapper(prefix + b85Lower)});${randomVar}=_sub(${randomVar},1,${lzmaCompressedPayload.length});G=type;local z={[0]=1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768,65536,131072,262144,524288,1048576,2097152,4194304,8388608,16777216,33554432,67108864,134217728,268435456,536870912,1073741824,2147483648,4294967296};local m=function(W,expectedSize) W=_sub(W,14);local O,h,V_,L=0,0,0xFFFFFFFF,#W;local r=function()O=O+1;return N(W,O,O) or 0;end;local N=0;for W=1,5 do N=N*256+r();end;local function W(X)local x=0;for _=X,1,-1.0 do V_=V_/2;V_=V_-V_%1;x=x*2;if not(N<V_)then N=N-V_;x=x+1;end;if V_<=0x00FFFFFF then V_=V_*256;N=N*256+r();end;end;return x;end;local X,x={[0]=0},"";local function _(t,Z)local g,T,o=V_/2048,t[Z];g=g-g%1;local s=g*T;if N<s then V_=s;g=(2048-T)/32;g=g-g%1;T=T+g;o=0;else V_=V_-s;N=N-s;local g=T/32;g=g-g%1;T=T-g;o=1;end;t[Z]=T;if V_<=0x00FFFFFF then V_=V_*256;N=N*256+r();end;return o;end;local N={[0]=0,0,0,0,1,2,3,4,5,6,4,5};local function K_(r,t,Z)local g=1;for T=1,t do g=g*2+_(Z,g);end;return(g-r);end;local function r(t,Z,g)local T,o=0,1;for s=0,t-1 do local t=_(g,Z+o);o=o*2+t;T=T+t*z[s];end;return T;end;local function t(Z,g)local T=1;for o=7,0,-1 do local s=(Z/z[o])%2;s=s-s%1;local o=_(g,T+(s*256)+256);T=T*2+o;if s~=o then while T<0x100 do T=T*2+_(g,T);end;break;end;end;return(T%256);end;local Z=0;local function g(T,o)if _(o,1)==0 then return K_(8,3,o[3][T]);elseif _(o,2)==0 then return 8+K_(8,3,o[4][T]);end;return K_(256,8,o[5])+16.0;end;local function T(o)local s={};for q=0,o-1 do s[q]=1024.0;end;return s;end;local function o(s,q)local J={};for y=0,s-1 do local s={};J[y]=s;for y=0,q-1 do s[y]=1024.0;end;end;return J;end;local function s()return{1024.0,1024.0,o(4,8),o(4,8),T(256)};end;local function q()local J,y,F,n,U,A,H,R,l,c,E,B,k,C,D,Y=o(8,0x300),0,0,o(12,4),T(12),T(12),T(12),0,T(12),o(12,4),o(4,64),T(115.0),T(16),s(),s(),0;while Z<expectedSize do local O=(Z%4);if _(n[h],O)==0 then local L=X[Z];local T=L/z[5.0];T=T-T%1;L=J[T];Z=Z+1;X[Z]=h<7 and K_(256,8,L)or t(X[Z-Y-1],L);h=N[h];else local p;if _(U,h)~=0 then if _(A,h)==0 then if _(c[h],O)==0 then h=h<7 and 9 or 11;p=1;end;else local L;if _(H,h)==0 then L=F;else if _(l,h)==0 then L=R;else L=y;y=R;end;R=F;end;F=Y;Y=L;end;if not p then h=h<7 and 8 or 11;p=2+g(O,D);end;else y=R;R=F;F=Y;p=2+g(O,C);local O=p-2;if 4<=O then O=3.0;end;Y=K_(64,6,E[O]);if Y>=4 then O=Y;local V=O/2-1;V=V-V%1;Y=(2+O%2)*z[V];if O<14 then Y=Y+r(V,Y-O,B);else Y=Y+(W(V-4)*16)+r(4,0,k);if Y==0xFFFFFFFF then return p==2;end;end;end;h=h<7 and 7 or 10;if Y>=Z then return false;end;end;local z=Z+p;for w=Z+1,z do X[w]=X[w-Y-1];end;Z=z;end;end;return false;end;q();P(e,w({},{__tostring=function()X=nil;end}),nil,nil);q=#X;for w=1,q,7997 do local z=w+7996.0;if z>q then z=q;end;x=x..u(j(X,w,z));end;return x;end;local w=m(K, ${Buffer.byteLength(minifiedSecurity, 'utf8')});K=m(${randomVar}, ${Buffer.byteLength(innerPayload, 'utf8')});\n${randomVar},m=P(e,w,"MinRay  ",nil);d(${randomVar} and m and G(m)=='function',"MinRay decompression error: "..S(m).." (does your environment support load/loadstring?)");return m(K);end)(...)`;
+        
         // Wait a few MS to let JS event loop clear up
         await new Promise(r => setTimeout(r, 10));
-
-        let finalObfuscated = "";
-        const injectedWrapper = wrapperCode.replace('...', `"${garbled}"`);
-
-        if (!useWrds) {
-            try {
-                // Completely skip WRD outer layer, just minify the decompression wrapper
-                finalObfuscated = luamin.minify(injectedWrapper);
-            } catch (err) {
-                // Fallback to basic string replacement if min fails
-                finalObfuscated = safeLuauMinify(injectedWrapper);
-            }
-        } else {
-            // Use WRD outer layer. WRD provides the classic Ironbrew aesthetics.
-            let wrdVmCode = await obfuscateWithPrometheus(wrapperCode, "WRD");
-            let nativeLoader = `local m={}
-local s="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
-local r="dIHBWMeYjX(~,cGF}!gL#U?:-|RSO^bP&/*AET)QfD]C;khV.=[{+ZKa$_J%><N@i"
-for i=1,65 do m[r:sub(i,i)]=s:sub(i,i) end
-local p=string.gsub((...):sub(8), ".", m)
-local loadedFn = (function(...)
-${wrdVmCode}
-end)(p)
-return loadedFn()`;
-            try {
-                let minNativeLoader = "";
-                try {
-                    minNativeLoader = luamin.minify(nativeLoader);
-                } catch {
-                    minNativeLoader = safeLuauMinify(nativeLoader);
-                }
-                finalObfuscated = `return (function(...)${minNativeLoader}end)("${garbled}")`;
-            } catch (err) {
-                finalObfuscated = `return (function(...)\n${nativeLoader}\nend)("${garbled}")`;
-            }
-        }
         const injectCustomGarbage = (code: string) => {
             let garbs = [
                 "if false then local _={};for i=1,10 do _[i]=i end end;",
@@ -780,95 +715,25 @@ return loadedFn()`;
             
             // Safe parser to extract indices of "local " only when outside of strings and comments
             const getValidLocalIndices = (src: string): number[] => {
+                const tokens = tokenizeLua(src);
                 const indices: number[] = [];
-                let i = 0;
-                const len = src.length;
-                while (i < len) {
-                    const char = src[i];
-                    // 1. Double-quoted string
-                    if (char === '"') {
-                        i++;
-                        while (i < len) {
-                            const c = src[i];
-                            if (c === '\\') {
-                                i += 2;
-                            } else if (c === '"') {
-                                i++;
-                                break;
-                            } else {
-                                i++;
+                let currentIndex = 0;
+                for (const token of tokens) {
+                    if (token.type === 'code') {
+                        let idx = token.value.indexOf("local ");
+                        while (idx !== -1) {
+                            const prevChar = idx > 0 ? token.value[idx - 1] : '';
+                            const isPrevAlphanumeric = /[a-zA-Z0-9_]/.test(prevChar);
+                            const nextChar = token.value[idx + 6] || '';
+                            const isNextAlphanumeric = /[a-zA-Z0-9_]/.test(nextChar);
+                            
+                            if (!isPrevAlphanumeric && !isNextAlphanumeric) {
+                                indices.push(currentIndex + idx);
                             }
-                        }
-                        continue;
-                    }
-                    // 2. Single-quoted string
-                    if (char === "'") {
-                        i++;
-                        while (i < len) {
-                            const c = src[i];
-                            if (c === '\\') {
-                                i += 2;
-                            } else if (c === "'") {
-                                i++;
-                                break;
-                            } else {
-                                i++;
-                            }
-                        }
-                        continue;
-                    }
-                    // 3. Multi-line string
-                    if (char === '[' && i + 1 < len && (src[i + 1] === '[' || src[i + 1] === '=')) {
-                        let eqCount = 0;
-                        let j = i + 1;
-                        while (j < len && src[j] === '=') {
-                            eqCount++;
-                            j++;
-                        }
-                        if (j < len && src[j] === '[') {
-                            const endBracket = ']' + '='.repeat(eqCount) + ']';
-                            const endIdx = src.indexOf(endBracket, j + 1);
-                            if (endIdx !== -1) {
-                                i = endIdx + endBracket.length;
-                                continue;
-                            }
+                            idx = token.value.indexOf("local ", idx + 6);
                         }
                     }
-                    // 4. Comment (single-line or multi-line)
-                    if (char === '-' && i + 1 < len && src[i + 1] === '-') {
-                        i += 2;
-                        if (i < len && src[i] === '[') {
-                            let eqCount = 0;
-                            let j = i + 1;
-                            while (j < len && src[j] === '=') {
-                                eqCount++;
-                                j++;
-                            }
-                            if (j < len && src[j] === '[') {
-                                const endBracket = ']' + '='.repeat(eqCount) + ']';
-                                const endIdx = src.indexOf(endBracket, j + 1);
-                                if (endIdx !== -1) {
-                                    i = endIdx + endBracket.length;
-                                    continue;
-                                }
-                            }
-                        }
-                        while (i < len && src[i] !== '\n' && src[i] !== '\r') {
-                            i++;
-                        }
-                        continue;
-                    }
-                    // 5. Match actual "local " token
-                    if (src.substring(i, i + 6) === "local ") {
-                        const prevChar = i > 0 ? src[i - 1] : '';
-                        const isPrevAlphanumeric = /[a-zA-Z0-9_]/.test(prevChar);
-                        if (!isPrevAlphanumeric) {
-                            indices.push(i);
-                        }
-                        i += 6;
-                        continue;
-                    }
-                    i++;
+                    currentIndex += token.value.length;
                 }
                 return indices;
             };
@@ -893,106 +758,8 @@ return loadedFn()`;
             }
             return out;
         }; 
-        if (preset === "psu-ExtraMinify") {
+         if (preset === "psu-ExtraMinify") {
             finalObfuscated = injectCustomGarbage(finalObfuscated);
-        }
-
-        if (preset !== "psu-ExtraMinify") {
-            try {
-                let targetSuffix = "(\"" + garbled + "\")";
-                let vmLogic = finalObfuscated;
-                if (finalObfuscated.endsWith(targetSuffix)) {
-                    vmLogic = finalObfuscated.substring(0, finalObfuscated.length - targetSuffix.length);
-                }
-                
-                let attempt = 0;
-                let maxAttempts = 5;
-                let obfText = "";
-                while (attempt < maxAttempts) {
-                    const xhiderRes = await fetch("https://xhider.xyz/", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: new URLSearchParams({
-                            action: "create_obf",
-                            api_token: "e7ec2a4cd8eaa07a3b66ca2add917ba4",
-                            preset: "obf lz",
-                            content: vmLogic,
-                            output: "console"
-                        })
-                    });
-                    
-                    obfText = await xhiderRes.text();
-                    
-                    const trimmedText = obfText ? obfText.trim() : "";
-                    const isHtml = trimmedText.startsWith("<") || 
-                                   trimmedText.toLowerCase().includes("<!doctype") || 
-                                   trimmedText.toLowerCase().includes("<html") ||
-                                   trimmedText.toLowerCase().includes("<head");
-                                   
-                    if (isHtml || trimmedText.length === 0) {
-                        console.log(`[Xhider Retry] HTML or empty response from xhider (attempt ${attempt + 1}/${maxAttempts}). Re-obfuscating...`);
-                        await new Promise(r => setTimeout(r, 1500));
-                        attempt++;
-                        continue;
-                    }
-
-                    if (trimmedText.includes("lua: Parsing Error at")) {
-                        throw new Error(trimmedText);
-                    }
-                    
-                    if (trimmedText.toLowerCase().includes("cooldown active") && trimmedText.includes("wait")) {
-                        const waitMatch = trimmedText.match(/wait (\d+\.\d+|\d+)s/);
-                        let waitMs = 3500;
-                        if (waitMatch && waitMatch[1]) {
-                            waitMs = parseFloat(waitMatch[1]) * 1000 + 500;
-                        }
-                        console.log("Xhider rate limited. Waiting " + waitMs + "ms...");
-                        await new Promise(r => setTimeout(r, waitMs));
-                        attempt++;
-                    } else {
-                        break;
-                    }
-                }
-
-                if (obfText && obfText.length > 0 && !obfText.toLowerCase().includes("error") && !obfText.toLowerCase().includes("cooldown active")) {
-                   obfText = obfText.replace(/--\/\/ This file was created by XHider v1\.2 \[https:\/\/discord\.gg\/hATuHQaQRb\][\r\n]*/g, "");
-                   finalObfuscated = obfText.trim() + "(\"" + garbled + "\")"; 
-                } else {
-                   if (obfText && obfText.includes("lua: Parsing Error at")) {
-                       throw new Error(obfText);
-                   }
-                   console.error("Xhider returned error:", obfText);
-                }
-            } catch (err: any) {
-                console.error("Xhider create_obf failed:", err);
-                if (err.message && err.message.includes("lua: Parsing Error at")) {
-                    reject(err);
-                    return;
-                }
-            }
-        }
-        // Host on xhider.xyz if > 400KB
-        if (Buffer.byteLength(finalObfuscated, 'utf8') >= 400 * 1024) {
-            const randomChars = Array.from({length: 9}, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join('');
-            try {
-                const uploadRes = await fetch("https://xhider.xyz/", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: new URLSearchParams({
-                        action: "save",
-                        api_token: "e83f55315d4ae24acfdf10027ddae10a",
-                        key: "Obfuscated.psu/" + randomChars,
-                        content: finalObfuscated
-                    })
-                });
-                const resText = await uploadRes.text();
-                if (resText.startsWith("Success: ")) {
-                    const rawUrl = resText.replace("Success: ", "").trim();
-                    finalObfuscated = `loadstring(game:HttpGet("${rawUrl}", true))()`;
-                }
-            } catch (err) {
-                console.error("Xhider upload failed:", err);
-            }
         }
 
         resolve(finalObfuscated);
@@ -1004,16 +771,16 @@ return loadedFn()`;
   
   if (preset.startsWith("psuOld-")) {
     const level = preset.split("-")[1];
-    return obfuscateWithPrometheus(code, level, true);
+    return obfuscateWithPrometheus(code, level, true, noCFF);
   }
 
   if (preset.startsWith("psu-")) {
     const level = preset.split("-")[1];
-    return obfuscateWithPrometheus(code, level);
+    return obfuscateWithPrometheus(code, level, false, noCFF);
   }
   
   if (preset === "psu") {
-    return obfuscateWithPrometheus(code, "Medium");
+    return obfuscateWithPrometheus(code, "Medium", false, noCFF);
   }
 
   return new Promise((resolve, reject) => {
@@ -1066,6 +833,94 @@ return loadedFn()`;
       try { outFile.removeCallback(); } catch(e) {}
     });
   });
+}
+
+function getRandomLuaVarName(length = 8): string {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const allChars = chars + "0123456789_";
+  let result = chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 1; i < length; i++) {
+    result += allChars[Math.floor(Math.random() * allChars.length)];
+  }
+  return result;
+}
+
+function getSafeSplitIndices(str: string): number[] {
+  const safeIndices: number[] = [];
+  let inDouble = false;
+  let inSingle = false;
+  let isEscaped = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+
+    if (isEscaped) {
+      isEscaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      isEscaped = true;
+      continue;
+    }
+
+    if (char === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+
+    if (!inDouble && !inSingle) {
+      if (char === ' ' || char === ';') {
+        safeIndices.push(i);
+      }
+    }
+  }
+
+  return safeIndices;
+}
+
+function stripLuaComments(code: string): string {
+  const tokens = tokenizeLua(code);
+  return tokens.map(t => t.type === 'comment' ? ' ' : t.value).join('');
+}
+
+function formatToExactlyThreeLines(code: string): string {
+  let watermark = "-- Obfuscated by Prometheus";
+  
+  // Extract leading comments to use as the Watermark list
+  const lines = code.split(/\r?\n/);
+  const leadingComments: string[] = [];
+  let codeStartIdx = 0;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.startsWith('--')) {
+      leadingComments.push(trimmed);
+      codeStartIdx = i + 1;
+    } else if (trimmed === '') {
+      codeStartIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+  
+  if (leadingComments.length > 0) {
+    watermark = leadingComments.join(' ');
+  }
+  
+  // Get all body code, strip trailing and inline comments cleanly
+  const bodyText = lines.slice(codeStartIdx).join("\n");
+  const commentStrippedBody = stripLuaComments(bodyText);
+  
+  // Condense spaces extremely tightly around special characters
+  const singleLineCode = compressSpacesLua(commentStrippedBody);
+  
+  return `${watermark}\n\n${singleLineCode}`;
 }
 
 function transformMinRayPayload(code: string): string {
@@ -1240,7 +1095,9 @@ function getClientIdentifier(req: express.Request): string {
 
 app.post('/api/obfuscate', async (req, res) => {
   try {
-    const { code, preset, userEmail, recoveryToken } = req.body;
+    const { code, preset, userEmail, recoveryToken, noCFF } = req.body;
+
+    const noCffBool = noCFF === true || noCFF === "true";
 
     // Extract API Key and check limits/unlimited early
     const apiKeyHeader = req.headers['x-api-key'] || req.headers['X-API-Key'];
@@ -1338,22 +1195,28 @@ app.post('/api/obfuscate', async (req, res) => {
     // Mark current obfuscation starting time to block parallel spam queries
     lastObfuscationTimes.set(clientKey, Date.now());
     
-    let result = await obfuscate(code, preset, false);
-    if (preset.includes('psu') || preset.includes('MinRay')) {
+    let result = await obfuscate(code, preset, false, noCffBool);
+    const isCompressedPreset = preset === "MinRay V2" || preset === "MinRay W?" || preset === "psu-Compressed" || preset === "psu-ExtraMinify";
+    if ((preset.includes('psu') || preset.includes('MinRay')) && !isCompressedPreset) {
       result = transformMinRayPayload(result);
     }
     let finalResult = result;
     if (preset.includes('MinRay')) {
-      finalResult = `-- This lua file was generated using the MinRay Obfuscator V2 [https://minray.workers.dev]\n\n${result}`;
+      const headerPreset = preset === "MinRay W?" ? "W?" : "V2";
+      finalResult = `-- This lua file was generated using the MinRay Obfuscator ${headerPreset} [https://minray.workers.dev]\n\n${result}`;
     }
 
     finalResult = finalResult.replace(/\.\.\.:sub/g, "(...):sub");
+
+    if ((preset.includes('psu') || preset.includes('MinRay')) && !isCompressedPreset) {
+      finalResult = formatToExactlyThreeLines(finalResult);
+    }
 
     res.json({ 
       code: finalResult,
       authenticated: !!providedKey,
       securityCheck: 'passed',
-      engine: 'MinRay V2 VM Virtualizer'
+      engine: preset === "MinRay W?" ? "MinRay W? Latin VM Virtualizer" : 'MinRay V2 VM Virtualizer'
     });
   } catch (error: any) {
     const isParseErr = error.message && error.message.includes("Parsing Error");
@@ -1397,4 +1260,6 @@ async function startServer() {
   });
 }
 
-startServer();
+if (process.argv[1] && (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.cjs') || process.argv[1].endsWith('server.js'))) {
+  startServer();
+}

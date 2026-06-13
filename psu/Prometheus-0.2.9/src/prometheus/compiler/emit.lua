@@ -132,6 +132,54 @@ return function(Compiler)
         return merged;
     end
 
+    function Compiler:crazyExpr(scope, expr)
+        if not self.sinVar or not self.cosVar or not self.absVar or not self.acosVar or not self.packVar or not self.rrotateVar or not self.replaceVar then
+            return expr
+        end
+        scope:addReferenceToHigherScope(self.containerFuncScope, self.sinVar)
+        scope:addReferenceToHigherScope(self.containerFuncScope, self.cosVar)
+        scope:addReferenceToHigherScope(self.containerFuncScope, self.absVar)
+        scope:addReferenceToHigherScope(self.containerFuncScope, self.acosVar)
+        scope:addReferenceToHigherScope(self.containerFuncScope, self.packVar)
+        scope:addReferenceToHigherScope(self.containerFuncScope, self.rrotateVar)
+        scope:addReferenceToHigherScope(self.containerFuncScope, self.replaceVar)
+
+        local sinFunc = Ast.VariableExpression(self.containerFuncScope, self.sinVar)
+        local cosFunc = Ast.VariableExpression(self.containerFuncScope, self.cosVar)
+        local absFunc = Ast.VariableExpression(self.containerFuncScope, self.absVar)
+        local acosFunc = Ast.VariableExpression(self.containerFuncScope, self.acosVar)
+        local packFunc = Ast.VariableExpression(self.containerFuncScope, self.packVar)
+        local rrotateFunc = Ast.VariableExpression(self.containerFuncScope, self.rrotateVar)
+        local replaceFunc = Ast.VariableExpression(self.containerFuncScope, self.replaceVar)
+
+        -- Highly advanced mathematical & bitwise identity cascade:
+        -- acos(cos(sin(expr * 0))) evaluates to exactly 0.0 with absolute precision stability.
+        local zeroTrig = Ast.FunctionCallExpression(acosFunc, {
+            Ast.FunctionCallExpression(cosFunc, {
+                Ast.FunctionCallExpression(sinFunc, {
+                    Ast.MulExpression(expr, Ast.NumberExpression(0))
+                })
+            })
+        })
+
+        -- string.pack string length property: #pack("b", zeroTrig) - 1 evaluates to exactly 0
+        local zeroPack = Ast.SubExpression(
+            Ast.LenExpression(Ast.FunctionCallExpression(packFunc, {
+                Ast.StringExpression("b"),
+                zeroTrig
+            })),
+            Ast.NumberExpression(1)
+        )
+
+        -- bit32.rrotate: rrotate(expr, zeroPack) -> rotated by 0 bits, keeping exact original value
+        local finalExpr = Ast.FunctionCallExpression(rrotateFunc, {
+            expr,
+            zeroPack
+        })
+
+        return finalExpr
+    end
+
     function Compiler:emitContainerFuncBody()
         local blocks = {};
 
@@ -211,8 +259,8 @@ return function(Compiler)
         -- Using a midpoint avoids exact-id comparisons while preserving dispatch.
         local function buildBlockThresholdCondition(scope, leftId, rightId, useAndOr)
             local bound = math.floor((leftId + rightId) / 2);
-            local posExpr = self:pos(scope);
-            local boundExpr = Ast.NumberExpression(bound);
+            local posExpr = self:crazyExpr(scope, self:pos(scope));
+            local boundExpr = self:crazyExpr(scope, Ast.NumberExpression(bound));
 
             if useAndOr then
                 -- Kept for compatibility with caller variations.
@@ -289,17 +337,20 @@ return function(Compiler)
             local condition;
             local trueBlock, falseBlock;
 
+            local crazyPos = self:crazyExpr(ifScope, self:pos(ifScope));
+            local crazyBound = self:crazyExpr(ifScope, Ast.NumberExpression(bound));
+
             if condStyle == 1 then
                 -- pos < bound
-                condition = Ast.LessThanExpression(self:pos(ifScope), Ast.NumberExpression(bound));
+                condition = Ast.LessThanExpression(crazyPos, crazyBound);
                 trueBlock, falseBlock = lBlock, rBlock;
             elseif condStyle == 2 then
                 -- bound > pos
-                condition = Ast.GreaterThanExpression(Ast.NumberExpression(bound), self:pos(ifScope));
+                condition = Ast.GreaterThanExpression(crazyBound, crazyPos);
                 trueBlock, falseBlock = lBlock, rBlock;
             else
                 -- Equivalent split using strict > with branches reversed.
-                condition = Ast.GreaterThanExpression(self:pos(ifScope), Ast.NumberExpression(bound));
+                condition = Ast.GreaterThanExpression(crazyPos, crazyBound);
                 trueBlock, falseBlock = rBlock, lBlock;
             end
 
@@ -308,16 +359,34 @@ return function(Compiler)
             }, ifScope);
         end
 
-        local whileBody = buildElseifChain(blocks, 1, #blocks, self.containerFuncScope);
-        if self.whileScope then
-            -- Ensure whileScope is properly connected
-            self.whileScope:setParent(self.containerFuncScope);
+        local stats = {}
+
+        local mathGlobal = Ast.IndexExpression(self:env(self.containerFuncScope), Ast.StringExpression("math"))
+        local stringGlobal = Ast.IndexExpression(self:env(self.containerFuncScope), Ast.StringExpression("string"))
+        local bit32Global = Ast.IndexExpression(self:env(self.containerFuncScope), Ast.StringExpression("bit32"))
+        table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, {
+            self.sinVar,
+            self.cosVar,
+            self.absVar,
+            self.modfVar,
+            self.acosVar,
+            self.packVar,
+            self.rrotateVar,
+            self.replaceVar,
+        }, {
+            Ast.IndexExpression(mathGlobal, Ast.StringExpression("sin")),
+            Ast.IndexExpression(mathGlobal, Ast.StringExpression("cos")),
+            Ast.IndexExpression(mathGlobal, Ast.StringExpression("abs")),
+            Ast.IndexExpression(mathGlobal, Ast.StringExpression("modf")),
+            Ast.IndexExpression(mathGlobal, Ast.StringExpression("acos")),
+            Ast.IndexExpression(stringGlobal, Ast.StringExpression("pack")),
+            Ast.IndexExpression(bit32Global, Ast.StringExpression("rrotate")),
+            Ast.IndexExpression(bit32Global, Ast.StringExpression("replace")),
+        }))
+
+        if self.maxUsedRegister >= MAX_REGS then
+            table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, {self.registerVars[MAX_REGS]}, {Ast.TableConstructorExpression({})}));
         end
-
-        self.whileScope:addReferenceToHigherScope(self.containerFuncScope, self.returnVar, 1);
-        self.whileScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
-
-        self.containerFuncScope:addReferenceToHigherScope(self.scope, self.unpackVar);
 
         local declarations = {
             self.returnVar,
@@ -329,15 +398,49 @@ return function(Compiler)
             end
         end
 
-        local stats = {}
-
-        if self.maxUsedRegister >= MAX_REGS then
-            table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, {self.registerVars[MAX_REGS]}, {Ast.TableConstructorExpression({})}));
-        end
-
         table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, util.shuffle(declarations), {}));
 
-        table.insert(stats, Ast.WhileStatement(whileBody, Ast.VariableExpression(self.containerFuncScope, self.posVar)));
+        self.containerFuncScope:addReferenceToHigherScope(self.scope, self.unpackVar);
+
+        if self.noCFF then
+            local blocksTableVar = self.containerFuncScope:addVariable();
+            table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, {blocksTableVar}, {Ast.TableConstructorExpression({})}));
+
+            for _, block in ipairs(blocks) do
+                block.block.scope:setParent(self.containerFuncScope);
+                local assignment = Ast.AssignmentStatement(
+                    { Ast.IndexExpression(Ast.VariableExpression(self.containerFuncScope, blocksTableVar), Ast.NumberExpression(block.id)) },
+                    { Ast.FunctionLiteralExpression({}, block.block) }
+                );
+                table.insert(stats, assignment);
+            end
+
+            local loopScope = self.whileScope or Scope:new(self.containerFuncScope);
+            loopScope:setParent(self.containerFuncScope);
+            loopScope:addReferenceToHigherScope(self.containerFuncScope, self.returnVar, 1);
+            loopScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
+
+            local callStmt = Ast.FunctionCallStatement(
+                Ast.IndexExpression(
+                    Ast.VariableExpression(self.containerFuncScope, blocksTableVar),
+                    Ast.VariableExpression(self.containerFuncScope, self.posVar)
+                ),
+                {}
+            );
+            local whileBody = Ast.Block({callStmt}, loopScope);
+            table.insert(stats, Ast.WhileStatement(whileBody, Ast.VariableExpression(self.containerFuncScope, self.posVar)));
+        else
+            local whileBody = buildElseifChain(blocks, 1, #blocks, self.containerFuncScope);
+            if self.whileScope then
+                -- Ensure whileScope is properly connected
+                self.whileScope:setParent(self.containerFuncScope);
+            end
+
+            self.whileScope:addReferenceToHigherScope(self.containerFuncScope, self.returnVar, 1);
+            self.whileScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
+
+            table.insert(stats, Ast.WhileStatement(whileBody, Ast.VariableExpression(self.containerFuncScope, self.posVar)));
+        end
 
 
         table.insert(stats, Ast.AssignmentStatement({

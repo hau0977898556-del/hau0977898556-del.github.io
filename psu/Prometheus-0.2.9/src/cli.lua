@@ -148,8 +148,174 @@ if not outFile then
 end
 
 local source = table.concat(lines_from(sourceFile), "\n")
-local pipeline = Prometheus.Pipeline:fromConfig(config)
-local out = pipeline:apply(source, sourceFile)
+local out
+if config.IsMinRay then
+	Prometheus.Logger:info("Connecting to MinRay V2 Cloud Obfuscation Engine...")
+	
+	-- Function to escape JSON string in pure Lua
+	local function escape_json_string(str)
+		local result = {}
+		for j = 1, #str do
+			local c = str:sub(j, j)
+			if c == '\\' then
+				table.insert(result, '\\\\')
+			elseif c == '"' then
+				table.insert(result, '\\"')
+			elseif c == '\n' then
+				table.insert(result, '\\n')
+			elseif c == '\r' then
+				table.insert(result, '\\r')
+			elseif c == '\t' then
+				table.insert(result, '\\t')
+			else
+				local code = string.byte(c)
+				if code < 32 then
+					table.insert(result, string.format('\\u%04x', code))
+				else
+					table.insert(result, c)
+				end
+			end
+		end
+		return table.concat(result)
+	end
+
+	-- Function to decode JSON string in pure Lua
+	local function decode_json_string(str, start_pos)
+		local char = str:sub(start_pos, start_pos)
+		if char ~= '"' then return nil, start_pos end
+		
+		local result = {}
+		local j = start_pos + 1
+		local length = #str
+		while j <= length do
+			local c = str:sub(j, j)
+			if c == '"' then
+				return table.concat(result), j + 1
+			elseif c == '\\' then
+				local next_c = str:sub(j+1, j+1)
+				if next_c == 'n' then
+					table.insert(result, '\n')
+				elseif next_c == 'r' then
+					table.insert(result, '\r')
+				elseif next_c == 't' then
+					table.insert(result, '\t')
+				elseif next_c == 'b' then
+					table.insert(result, '\b')
+				elseif next_c == 'f' then
+					table.insert(result, '\f')
+				elseif next_c == '\\' then
+					table.insert(result, '\\')
+				elseif next_c == '/' then
+					table.insert(result, '/')
+				elseif next_c == '"' then
+					table.insert(result, '"')
+				elseif next_c == 'u' then
+					local hex = str:sub(j+2, j+5)
+					local code = tonumber(hex, 16)
+					if code then
+						if code < 128 then
+							table.insert(result, string.char(code))
+						else
+							if code < 2048 then
+								table.insert(result, string.char(192 + math.floor(code / 64)) .. string.char(128 + (code % 64)))
+							else
+								table.insert(result, string.char(224 + math.floor(code / 4096)) .. string.char(128 + math.floor((code % 4096) / 64)) .. string.char(128 + (code % 64)))
+							end
+						end
+					end
+					j = j + 4
+				else
+					table.insert(result, next_c)
+				end
+				j = j + 2
+			else
+				table.insert(result, c)
+				j = j + 1
+			end
+		end
+		return nil, start_pos
+	end
+
+	-- Function to decode simple JSON response from MinRay
+	local function decode_json_simple(str)
+		local res = {}
+		local j = 1
+		local length = #str
+		while j <= length do
+			local char = str:sub(j, j)
+			if char == '"' then
+				local key, next_j = decode_json_string(str, j)
+				if key then
+					j = next_j
+					while j <= length and str:sub(j,j) ~= ':' do
+						j = j + 1
+					end
+					if str:sub(j,j) == ':' then
+						j = j + 1
+						while j <= length and (str:sub(j,j) == ' ' or str:sub(j,j) == '\t' or str:sub(j,j) == '\n' or str:sub(j,j) == '\r') do
+							j = j + 1
+						end
+						if str:sub(j,j) == '"' then
+							local val, val_next = decode_json_string(str, j)
+							if val then
+								res[key] = val
+								j = val_next
+							end
+						end
+					end
+				else
+					j = j + 1
+				end
+			else
+				j = j + 1
+			end
+		end
+		return res
+	end
+
+	-- Escape the source code to save as JSON
+	local escapedSource = escape_json_string(source)
+	local json_payload = '{"code":"' .. escapedSource .. '","preset":"MinRay V2"}'
+	
+	-- Write to temp JSON file to fully bypass shell argument length / escape characters limitation
+	local temp_json_path = sourceFile .. ".minray_temp.json"
+	local json_file = io.open(temp_json_path, "w")
+	if not json_file then
+		Prometheus.Logger:error("Failed to create temporary compilation payload file!")
+	end
+	json_file:write(json_payload)
+	json_file:close()
+	
+	-- Build the secure system execution query
+	local cmd = 'curl -s -X POST "https://minray-obfuscator-production.up.railway.app/api/obfuscate" ' ..
+	            '-H "Content-Type: application/json" ' ..
+	            '-H "X-API-Key: MinRayAPI-W6ZMWT" ' ..
+	            '-d @' .. string.format('"%s"', temp_json_path)
+	
+	local pipe = io.popen(cmd)
+	local response = pipe:read("*all")
+	pipe:close()
+	
+	-- Clean up temp JSON payload file
+	os.remove(temp_json_path)
+	
+	if not response or response == "" then
+		Prometheus.Logger:error("Empty response or request timeout connection to MinRay API.")
+	end
+	
+	local parsed = decode_json_simple(response)
+	if parsed.error then
+		Prometheus.Logger:error("MinRay Server Compilation Error: " .. parsed.error)
+	elseif parsed.code then
+		out = parsed.code
+		Prometheus.Logger:info("MinRay V2 Obfuscation completed successfully!")
+	else
+		Prometheus.Logger:error("Failed parsing MinRay API Response. Response body: " .. response)
+	end
+else
+	local pipeline = Prometheus.Pipeline:fromConfig(config)
+	out = pipeline:apply(source, sourceFile)
+end
 Prometheus.Logger:info(string.format('Writing output to "%s"', outFile))
 
 -- Write Output

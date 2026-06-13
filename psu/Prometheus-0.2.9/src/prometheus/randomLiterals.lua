@@ -25,7 +25,7 @@ function RandomLiterals.Dictionary()
 end
 
 function RandomLiterals.Number()
-    return Ast.NumberExpression(math.random(-8388608, 8388607));
+    return Ast.NumberExpression(math.random(-100, 100));
 end
 
 function RandomLiterals.Any(pipeline)

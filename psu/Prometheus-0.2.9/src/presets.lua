@@ -117,4 +117,18 @@ return {
 			{ Name = "WrapInFunction", Settings = {} },
 		},
 	},
+
+	-- MinRay VM Virtualizer Presets
+	["MinRay V2"] = {
+		LuaVersion = "LuaU",
+		IsMinRay = true,
+		Name = "MinRay V2",
+		Steps = {},
+	},
+	["MinRay"] = {
+		LuaVersion = "LuaU",
+		IsMinRay = true,
+		Name = "MinRay V2",
+		Steps = {},
+	},
 }

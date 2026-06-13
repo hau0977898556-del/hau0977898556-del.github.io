@@ -444,81 +444,102 @@ function obfuscate(code: string, preset: string): Promise<string> {
         finalObfuscated = finalObfuscated.replace(/\.\.\.:sub/g, "(...):sub");
         console.log("AFTER replace:", finalObfuscated.includes("...:sub"), finalObfuscated.includes("(...):sub"));
 
-        if (preset !== "psu-ExtraMinify") {
-            try {
-                console.log("Sending to xhider.xyz to obfuscate further...");
-                let targetSuffix = `("${garbled}")`;
-                let vmLogic = finalObfuscated;
-                if (finalObfuscated.endsWith(targetSuffix)) {
-                    vmLogic = finalObfuscated.substring(0, finalObfuscated.length - targetSuffix.length);
+        console.log("Applying custom Base85 encoding as requested...");
+        
+        function encodeBase85(text: string): string {
+            const alphabet = '!"#$%&()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstu';
+            const buf = Buffer.from(text, 'utf-8');
+            let result = '';
+            let i = 0;
+            while (i < buf.length) {
+                const chunk = buf.slice(i, i + 4);
+                let value = 0;
+                for (let j = 0; j < 4; j++) {
+                    value = value * 256 + (j < chunk.length ? chunk[j] : 0);
                 }
                 
-                let attempt = 0;
-                let maxAttempts = 5;
-                let obfText = "";
-                while (attempt < maxAttempts) {
-                    const xhiderRes = await fetch("https://xhider.xyz/", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: new URLSearchParams({
-                            action: "create_obf",
-                            api_token: "e7ec2a4cd8eaa07a3b66ca2add917ba4",
-                            preset: "obf lz",
-                            content: vmLogic,
-                            output: "console"
-                        })
-                    });
-                    
-                    obfText = await xhiderRes.text();
-                    
-                    if (obfText && obfText.toLowerCase().includes("cooldown active") && obfText.includes("Please wait")) {
-                        const waitMatch = obfText.match(/Please wait ([\d\.]+)s/);
-                        let waitMs = 3500;
-                        if (waitMatch && waitMatch[1]) {
-                            waitMs = parseFloat(waitMatch[1]) * 1000 + 500; // add 500ms jitter
-                        }
-                        console.log(`Xhider rate limited. Waiting ${waitMs}ms...`);
-                        await new Promise(r => setTimeout(r, waitMs));
-                        attempt++;
-                    } else {
-                        break; // Success or non-ratelimit error
-                    }
+                let encodedDigits = '';
+                let remValue = value;
+                for (let k = 0; k < 5; k++) {
+                    const digit = remValue % 85;
+                    encodedDigits = alphabet[digit] + encodedDigits;
+                    remValue = Math.floor(remValue / 85);
                 }
-
-                if (obfText && obfText.length > 0 && !obfText.toLowerCase().includes("error")) {
-                   obfText = obfText.replace(/--\/\/ This file was created by XHider v1\.2 \[https:\/\/discord\.gg\/hATuHQaQRb\][\r\n]*/g, "");
-                   finalObfuscated = obfText.trim() + targetSuffix; 
-                } else {
-                   console.error("Xhider create_obf returned invalid response after retries:", obfText);
-                }
-            } catch (err) {
-                console.error("Xhider create_obf failed:", err);
+                
+                result += encodedDigits.slice(0, chunk.length + 1);
+                i += 4;
             }
+            return result;
         }
 
-        // Host on xhider.xyz if > 400KB
-        if (Buffer.byteLength(finalObfuscated, 'utf8') >= 400 * 1024) {
-            const randomChars = Array.from({length: 9}, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join('');
-            try {
-                const uploadRes = await fetch("https://xhider.xyz/", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: new URLSearchParams({
-                        action: "save",
-                        api_token: "e83f55315d4ae24acfdf10027ddae10a",
-                        key: "Obfuscated.psu/" + randomChars,
-                        content: finalObfuscated
-                    })
-                });
-                const resText = await uploadRes.text();
-                if (resText.startsWith("Success: ")) {
-                    const rawUrl = resText.replace("Success: ", "").trim();
-                    finalObfuscated = `loadstring(game:HttpGet("${rawUrl}", true))()`;
-                }
-            } catch (err) {
-                console.error("Xhider upload failed:", err);
-            }
-        }
+        const b85Data = encodeBase85(finalObfuscated);
+        const escapedB85 = b85Data.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        
+        const base85Wrapped = `local b85_encoded = '${escapedB85}'
+local alphabet = ""
+for i = 33, 117 do
+    alphabet = alphabet .. string.char(i)
+end
+local lookup = {}
+for i = 1, #alphabet do
+    lookup[alphabet:sub(i, i)] = i - 1
+end
+
+local function decode(str)
+    local length = #str
+    local parts = {}
+    local index = 1
+    while index <= length do
+        local remain = length - index + 1
+        local count = remain >= 5 and 5 or remain
+        local value = 0
+        local valid = count > 1
+
+        for j = 0, 4 do
+            local code
+            if j < count then
+                local ch = str:sub(index + j, index + j)
+                code = lookup[ch] or 0
+            else
+                code = 84
+            end
+            value = value * 85 + code
+        end
+
+        if valid then
+            local b1 = math.floor(value / 16777216) % 256
+            local b2 = math.floor(value / 65536) % 256
+            local b3 = math.floor(value / 256) % 256
+            local b4 = value % 256
+            if count == 5 then
+                table.insert(parts, string.char(b1, b2, b3, b4))
+            elseif count == 4 then
+                table.insert(parts, string.char(b1, b2, b3))
+            elseif count == 3 then
+                table.insert(parts, string.char(b1, b2))
+            elseif count == 2 then
+                table.insert(parts, string.char(b1))
+            end
+        end
+        index = index + count
+    end
+    return table.concat(parts)
+end
+
+local success, env_or_err = pcall(function(...)
+    local decoded = decode(b85_encoded)
+    local fn, load_err = loadstring(decoded)
+    if fn then
+        return fn(...)
+    else
+        error(load_err or "Failed to load string")
+    end
+end, ...)
+if not success then
+    error("Decoder error: " .. tostring(env_or_err))
+end`;
+
+        finalObfuscated = base85Wrapped;
 
         resolve(finalObfuscated);
       } catch (err) {

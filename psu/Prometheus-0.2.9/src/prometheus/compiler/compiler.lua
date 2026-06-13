@@ -132,6 +132,14 @@ function Compiler:compile(ast)
     self.whileScope = Scope:new(self.containerFuncScope);
 
     self.posVar = self.containerFuncScope:addVariable();
+    self.sinVar = self.containerFuncScope:addVariable();
+    self.cosVar = self.containerFuncScope:addVariable();
+    self.absVar = self.containerFuncScope:addVariable();
+    self.modfVar = self.containerFuncScope:addVariable();
+    self.acosVar = self.containerFuncScope:addVariable();
+    self.packVar = self.containerFuncScope:addVariable();
+    self.rrotateVar = self.containerFuncScope:addVariable();
+    self.replaceVar = self.containerFuncScope:addVariable();
     self.argsVar = self.containerFuncScope:addVariable();
     self.currentUpvaluesVar = self.containerFuncScope:addVariable();
     self.detectGcCollectVar = self.containerFuncScope:addVariable();

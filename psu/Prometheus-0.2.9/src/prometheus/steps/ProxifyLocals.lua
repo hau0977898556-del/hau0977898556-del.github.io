@@ -73,10 +73,12 @@ local MetatableExpressions = {
         constructor = Ast.DivExpression,
         key = "__div";
     },
+    --[[
     {
         constructor = Ast.PowExpression,
         key = "__pow";
     },
+    ]]
     {
         constructor = Ast.StrCatExpression,
         key = "__concat";
